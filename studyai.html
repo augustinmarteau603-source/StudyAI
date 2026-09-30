@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyAI - Apprends simplement</title>
+<script src="https://js.puter.com/v2/"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
+  body { background:#0f172a; color:#e2e8f0; min-height:100vh; }
+  header { background:#1e293b; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100; box-shadow:0 2px 10px rgba(0,0,0,.4); flex-wrap:wrap; gap:10px; }
+  header h1 { font-size:1.3rem; background:linear-gradient(90deg,#60a5fa,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .points-badge { background:#334155; padding:8px 16px; border-radius:999px; font-weight:bold; color:#fbbf24; cursor:pointer; border:1px solid #475569; }
+  .points-badge:hover { background:#3b4a63; }
+  nav { display:flex; gap:8px; padding:14px 16px; overflow-x:auto; background:#16203a; }
+  .tab { padding:10px 18px; border-radius:999px; background:#1e293b; border:1px solid #334155; cursor:pointer; white-space:nowrap; color:#cbd5e1; font-weight:600; transition:.2s; }
+  .tab:hover { background:#2a3a55; }
+  .tab.active { background:linear-gradient(90deg,#3b82f6,#8b5cf6); color:white; border-color:transparent; }
+  main { max-width:900px; margin:0 auto; padding:24px 16px 60px; }
+  .view { display:none; }
+  .view.active { display:block; animation:fade .3s; }
+  @keyframes fade { from{opacity:0; transform:translateY(8px);} to{opacity:1;} }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:16px; padding:22px; margin-bottom:18px; }
+  input[type=text], textarea { width:100%; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px 14px; color:#e2e8f0; font-size:1rem; margin-bottom:12px; }
+  input:focus, textarea:focus { outline:none; border-color:#3b82f6; }
+  button.btn { background:linear-gradient(90deg,#3b82f6,#8b5cf6); color:white; border:none; padding:12px 24px; border-radius:10px; font-size:1rem; font-weight:600; cursor:pointer; transition:.2s; }
+  button.btn:hover { transform:translateY(-2px); box-shadow:0 4px 15px rgba(59,130,246,.4); }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .btn-secondary { background:#334155; }
+  .course-item { background:#16203a; border:1px solid #334155; border-radius:12px; padding:16px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition:.2s; }
+  .course-item:hover { border-color:#3b82f6; }
+  .course-item h3 { font-size:1rem; color:#93c5fd; }
+  .course-item small { color:#64748b; }
+  .badge { background:#3b82f622; color:#60a5fa; padding:4px 10px; border-radius:999px; font-size:.8rem; }
+  .section-cours { margin-bottom:20px; }
+  .section-cours h3 { color:#a78bfa; margin-bottom:8px; border-left:3px solid #8b5cf6; padding-left:10px; }
+  .section-cours p { line-height:1.7; color:#cbd5e1; white-space:pre-wrap; }
+  .quiz-opt { display:block; width:100%; text-align:left; background:#16203a; border:1px solid #334155; border-radius:10px; padding:12px 14px; margin-bottom:8px; color:#e2e8f0; cursor:pointer; font-size:.95rem; }
+  .quiz-opt:hover { border-color:#3b82f6; }
+  .quiz-opt.correct { background:#14532d; border-color:#22c55e; }
+  .quiz-opt.wrong { background:#7f1d1d; border-color:#ef4444; }
+  .quiz-opt:disabled { cursor:default; }
+  .q-num { color:#64748b; font-size:.85rem; margin-bottom:10px; }
+  .shop-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+  .shop-item { background:#16203a; border:1px solid #334155; border-radius:12px; padding:18px; text-align:center; }
+  .shop-item .icon { font-size:2.2rem; margin-bottom:8px; }
+  .shop-item h3 { font-size:1rem; margin-bottom:6px; }
+  .shop-item .price { color:#fbbf24; font-weight:bold; margin-bottom:12px; }
+  .progress-bar { background:#0f172a; border-radius:999px; height:10px; overflow:hidden; margin:12px 0; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,#3b82f6,#22c55e); transition:width .3s; }
+  .file-drop { border:2px dashed #475569; border-radius:12px; padding:24px; text-align:center; cursor:pointer; color:#94a3b8; margin-bottom:12px; }
+  .file-drop:hover { border-color:#3b82f6; color:#cbd5e1; }
+  #photoPreview { max-width:100%; border-radius:10px; margin-bottom:12px; display:none; }
+  .result-box { text-align:center; padding:20px; }
+  .result-box .big { font-size:2.5rem; font-weight:bold; color:#fbbf24; }
+  .loader { border:4px solid #334155; border-top-color:#3b82f6; border-radius:50%; width:36px; height:36px; animation:spin 1s linear infinite; margin:20px auto; }
+  @keyframes spin { to{transform:rotate(360deg);} }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#14532d; color:#bbf7d0; padding:12px 24px; border-radius:10px; display:none; z-index:200; }
+  .toast.error { background:#7f1d1d; color:#fecaca; }
+  .delete-btn { background:none; border:none; color:#ef4444; cursor:pointer; font-size:1.1rem; margin-left:8px; }
+  .api-badge { position:fixed; bottom:12px; right:12px; background:#16203a; border:1px solid #334155; color:#64748b; font-size:.7rem; padding:5px 10px; border-radius:8px; }
+</style>
+<style>
+input[type=number],input[type=date],select{width:100%;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 14px;color:#e2e8f0;font-size:1rem;margin-bottom:12px;color-scheme:dark}
+.r2,.r3{display:grid;gap:10px}.r2{grid-template-columns:1fr 1fr}.r3{grid-template-columns:1.3fr 1fr 1fr}
+@media(max-width:560px){.r2{grid-template-columns:1fr}}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.thumb{position:relative}
+.thumb img{height:80px;border-radius:8px;display:block}
+.thumb button{position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:0;border-radius:50%;width:22px;height:22px;cursor:pointer}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:18px}
+.stat{background:#16203a;border:1px solid #334155;border-radius:12px;padding:14px;text-align:center}
+.stat b{display:block;font-size:1.4rem}.stat small{color:#64748b}
+.brow{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.9rem}
+.brow .lb{flex:0 0 38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{flex:1;background:#0f172a;border-radius:999px;height:12px;overflow:hidden}.bar i{display:block;height:100%}
+.brow .v{flex:0 0 48px;text-align:right;font-weight:bold}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:700px){.two{grid-template-columns:1fr}}
+.photos img{width:140px;border-radius:8px;margin:0 8px 8px 0;cursor:pointer}.photos img.big{width:100%}
+button.mini{padding:4px 8px;font-size:.8rem}
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<header>
+  <h1>📚 StudyAI</h1>
+  <div class="points-badge" onclick="showView('shop')">⭐ <span id="pointsDisplay">0</span> pts</div>
+</header>
+
+<nav id="tabs"></nav>
+
+<main>
+  <div id="view-subject" class="view active">
+    <div class="card">
+      <h2 style="margin-bottom:16px">➕ Nouveau cours — <span id="subjectName"></span></h2>
+      <input type="text" id="topicInput" placeholder="Ex : les équations du second degré, les figures de style...">
+      <input type="text" id="linkInput" placeholder="🎵 Lien YouTube / Spotify ou titre de la chanson..." style="display:none">
+      <p style="color:#64748b;margin:8px 0">ou</p>
+      <div class="file-drop" onclick="document.getElementById('photoInput').click()">📷 Prendre une photo de ta fiche</div>
+      <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none">
+      <img id="photoPreview">
+      <button class="btn" id="generateBtn" onclick="generateCourse()">✨ Générer mon cours</button>
+    </div>
+    <h2 style="margin:20px 0 12px">📖 Mes cours</h2>
+    <div id="courseList"></div>
+  </div>
+
+  <div id="view-course" class="view">
+    <button class="btn btn-secondary" style="margin-bottom:16px" onclick="backToSubject()">← Retour</button>
+    <div class="card">
+      <h2 id="courseTitle"></h2>
+      <div id="courseContent"></div>
+    </div>
+    <button class="btn" id="startQuizBtn" onclick="startQuiz()">📝 Lancer le quiz (10 questions)</button>
+  </div>
+
+  <div id="view-quiz" class="view">
+    <div class="card">
+      <div class="q-num" id="quizProgress"></div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <h3 id="quizQuestion" style="margin-bottom:16px"></h3>
+      <div id="quizOptions"></div>
+      <p id="quizFeedback" style="margin-top:10px;min-height:1.4em"></p>
+      <button class="btn" id="nextBtn" style="display:none;margin-top:12px" onclick="nextQuestion()">Question suivante →</button>
+    </div>
+  </div>
+
+  <div id="view-result" class="view">
+    <div class="card result-box">
+      <h2>🎉 Quiz terminé !</h2>
+      <div class="big" id="resultScore"></div>
+      <p id="resultText"></p>
+      <p style="color:#fbbf24;font-weight:bold" id="resultPoints"></p>
+      <button class="btn" style="margin-top:14px" onclick="showView('shop')">🛍️ Voir la boutique</button>
+    </div>
+  </div>
+
+  <div id="view-shop" class="view">
+    <h2 style="margin-bottom:16px">🛍️ Boutique</h2>
+    <p style="color:#94a3b8;margin-bottom:16px">Échange tes points gagnés dans les quizzes contre des récompenses !</p>
+    <div class="shop-grid" id="shopGrid"></div>
+    <h3 style="margin-top:24px">🎁 Mes récompenses :</h3>
+    <div id="myRewards"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="api-badge">Powered by Puter.js — GPT / Claude / Gemini</div>
+
+<script>
+const SUBJECTS = [
+  { id:'maths', name:'Maths', icon:'🔢' },
+  { id:'francais', name:'Français', icon:'📖' },
+  { id:'histoire', name:'Histoire-Géo', icon:'🏛️' },
+  { id:'svt', name:'SVT', icon:'🧬' },
+  { id:'physique', name:'Physique-Chimie', icon:'⚗️' },
+  { id:'philosophie', name:'Philosophie', icon:'🤔' },
+  { id:'anglais', name:'Anglais', icon:'🇬🇧' },
+  { id:'espagnol', name:'Español', icon:'🇪🇸' },
+  { id:'allemand', name:'Deutsch', icon:'🇩🇪' },
+  { id:'italien', name:'Italiano', icon:'🇮🇹' },
+  { id:'chinois', name:'中文', icon:'🇨🇳' },
+  { id:'arabe', name:'العربية', icon:'🕌' },
+  { id:'musique', name:'Musique', icon:'🎵' },
+  { id:'arts', name:'Arts', icon:'🎨' },
+  { id:'techno', name:'Techno', icon:'📱' },
+  { id:'informatique', name:'Informatique', icon:'💻' },
+];
+
+const SHOP_ITEMS = [
+  { icon:'🍫', name:'Pause goûter', price:50 },
+  { icon:'🎵', name:'Playlist détente', price:100 },
+  { icon:'🎮', name:'30 min de jeu vidéo', price:150 },
+  { icon:'🎬', name:'Un épisode de série', price:200 },
+  { icon:'🎨', name:'Kit de dessin', price:250 },
+  { icon:'🏆', name:'Titre "Roi du quiz"', price:300 },
+  { icon:'🎟️', name:'Sortie ciné/concert', price:400 },
+  { icon:'🎁', name:'Mystère...', price:500 },
+];
+
+const POINTS_PER_QUESTION = 10;
+
+let currentSubject = SUBJECTS[0];
+let currentCourse = null;
+let photoBase64 = null;
+let quiz = null, quizIndex = 0, quizScore = 0;
+
+function load(key, def){ try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; } }
+function save(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+
+let courses = load('studyai_courses', {});
+let points = load('studyai_points', 0);
+let rewards = load('studyai_rewards', []);
+
+// ---------- CONNEXION PUTER (gratuit, sans clé) ----------
+let puterReady = false;
+(async () => {
+  try {
+    await puter.auth.signIn({ attempt_temp_user_creation: true, show_sign_in_ui: false });
+  } catch(e) { /* la fenêtre s'affichera au premier appel si besoin */ }
+  puterReady = true;
+})();
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = SUBJECTS.map(s =>
+    `<div class="tab ${s.id===currentSubject.id?'active':''}" onclick="selectSubject('${s.id}')">${s.icon} ${s.name}</div>`
+  ).join('');
+}
+function selectSubject(id){
+  currentSubject = SUBJECTS.find(s=>s.id===id);
+  photoBase64 = null;
+  document.getElementById('photoPreview').style.display='none';
+  document.getElementById('topicInput').value='';
+  document.getElementById('linkInput').value='';
+  document.getElementById('linkInput').style.display = currentSubject.id==='musique' ? 'block' : 'none';
+  renderTabs(); renderCourseList(); showView('subject');
+}
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  if(name==='shop') renderShop();
+  window.scrollTo(0,0);
+}
+function renderCourseList(){
+  document.getElementById('subjectName').textContent = currentSubject.name;
+  const list = courses[currentSubject.id] || [];
+  document.getElementById('courseList').innerHTML = list.length ? list.map((c,i)=>
+    `<div class="course-item" onclick="openCourse(${i})">
+       <div><h3>${c.title}</h3><small>${c.date}</small></div>
+       <div><span class="badge">${c.quizDone ? '✅ Quiz fait ('+(c.quizScore||0)+'/10)' : '📝 Quiz à faire'}</span>
+       <button class="delete-btn" onclick="event.stopPropagation();deleteCourse(${i})">🗑️</button></div>
+     </div>`).join('')
+    : '<p style="color:#64748b">Aucun cours pour l\'instant. Génère ton premier cours ! ✨</p>';
+}
+function deleteCourse(i){
+  courses[currentSubject.id].splice(i,1); save('studyai_courses', courses); renderCourseList();
+}
+function updatePoints(){ document.getElementById('pointsDisplay').textContent = points; }
+function toast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast' + (isError?' error':''); t.style.display='block';
+  clearTimeout(t._timer); t._timer = setTimeout(()=>t.style.display='none', 3500);
+}
+
+// ---------- PHOTO ----------
+document.getElementById('photoInput').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 900/img.width);
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      photoBase64 = canvas.toDataURL('image/jpeg',0.7);
+      const pv = document.getElementById('photoPreview');
+      pv.src = photoBase64; pv.style.display='block';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+// ---------- API (Puter.js : GPT/Claude/Gemini gratuits, sans clé) ----------
+function extractJSON(txt){
+  txt = (txt||'').replace(/```json|```/g,'').trim();
+  const start = txt.indexOf('{'), end = txt.lastIndexOf('}');
+  if(start===-1 || end===-1 || end < start) throw new Error('Réponse invalide de l\'IA');
+  return JSON.parse(txt.slice(start, end+1));
+}
+
+async function callAI(messages, useVision){
+  const opts = {};
+  if (useVision) opts.model = 'google/gemini-2.0-flash'; // modèle vision
+  try {
+    const resp = await puter.ai.chat(messages, opts);
+    return extractJSON(resp?.message?.content ?? resp?.toString?.() ?? resp);
+  } catch(e) {
+    throw new Error(e.message || 'Erreur API');
+  }
+}
+
+// ---------- GENERATION COURS ----------
+async function generateCourse(){
+  const topic = document.getElementById('topicInput').value.trim();
+  const link = document.getElementById('linkInput').value.trim();
+  const isMusic = currentSubject.id === 'musique';
+  if(!topic && !photoBase64 && !(isMusic && link)){ toast('⚠️ Écris un sujet, ajoute une photo ou colle un lien', true); return; }
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true; btn.innerHTML = '<div class="loader"></div>';
+  try {
+    let messages;
+    if(isMusic && link && !photoBase64){
+      messages = [
+        { role:'system', content:'Tu es un professeur de musique passionné et pédagogue. Si tu connais cette chanson, analyse-la en détail. Sinon, explique ce que tu peux et propose de coller les paroles. Réponds UNIQUEMENT en JSON valide.' },
+        { role:'user', content:`Voici une musique (lien ou titre) : "${link}". Fais un cours SIMPLIFIÉ et structuré : présentation de l'artiste/groupe, style musical et époque, analyse des thèmes et du message, vocabulaire musical utile, et si tu connais les paroles, analyse un passage marquant. Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` }
+      ];
+    } else if(photoBase64){
+      messages = [
+        { role:'system', content:'Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.' },
+        { role:'user', content:[
+            { type:'text', text:`Voici une photo${isMusic ? ' de paroles de chanson / partition / fiche musicale' : ' de ma fiche de '+currentSubject.name}${topic ? ' (sujet : "'+topic+'")' : ''}${isMusic && link ? ' associée à la musique : "'+link+'"' : ''}. Génère un cours SIMPLIFIÉ et structuré sur ce contenu. Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` },
+            { type:'image_url', image_url:{ url: photoBase64 } }
+        ]}
+      ];
+    } else {
+      messages = [
+        { role:'system', content:'Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.' },
+        { role:'user', content:`Génère un cours SIMPLIFIÉ et structuré en ${currentSubject.name} sur le sujet : "${topic}". Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` }
+      ];
+    }
+    const result = await callAI(messages, !!photoBase64);
+    if(!result.sections || !result.sections.length) throw new Error('Cours vide reçu');
+    const course = {
+      title: result.title || topic || (isMusic && link ? link : 'Cours photo'),
+      sections: result.sections,
+      date: new Date().toLocaleDateString('fr-FR'),
+      quiz: null, quizDone: false
+    };
+    (courses[currentSubject.id] = courses[currentSubject.id] || []).unshift(course);
+    save('studyai_courses', courses);
+    renderCourseList();
+    openCourse(0);
+    toast('✅ Cours généré !');
+  } catch(e){ toast('❌ ' + e.message + ' — réessaie', true); }
+  btn.disabled = false; btn.textContent = '✨ Générer mon cours';
+}
+
+// ---------- COURS ----------
+function openCourse(i){
+  currentCourse = { subjectId: currentSubject.id, index: i };
+  const c = courses[currentSubject.id][i];
+  document.getElementById('courseTitle').textContent = c.title;
+  document.getElementById('courseContent').innerHTML = c.sections.map(s=>
+    `<div class="section-cours"><h3>${s.heading}</h3><p>${s.content}</p></div>`).join('');
+  document.getElementById('startQuizBtn').style.display = c.quizDone ? 'none' : 'inline-block';
+  showView('course');
+}
+function backToSubject(){ showView('subject'); renderCourseList(); }
+
+// ---------- QUIZ ----------
+async function startQuiz(){
+  const c = courses[currentSubject.id][currentCourse.index];
+  const btn = document.getElementById('startQuizBtn');
+  btn.disabled = true; btn.textContent = '⏳ Création du quiz...';
+  try {
+    const messages = [
+      { role:'system', content:'Tu crées des quiz pour élèves. Réponds UNIQUEMENT en JSON valide.' },
+      { role:'user', content:`À partir de ce cours, crée un quiz de 10 questions à choix multiples (4 options, 1 bonne réponse, niveau lycée/collège). Réponds UNIQUEMENT avec ce JSON : {"questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}\n\nCours : ${c.title}\n${c.sections.map(s=>s.heading+': '+s.content).join('\n')}` }
+    ];
+    const result = await callAI(messages, false);
+    if(!result.questions || result.questions.length < 5) throw new Error('Quiz invalide reçu');
+    quiz = result.questions.slice(0,10); quizIndex = 0; quizScore = 0;
+    showView('quiz'); renderQuestion();
+  } catch(e){ toast('❌ ' + e.message, true); }
+  btn.disabled = false; btn.textContent = '📝 Lancer le quiz (10 questions)';
+}
+function renderQuestion(){
+  const q = quiz[quizIndex];
+  document.getElementById('quizProgress').textContent = `Question ${quizIndex+1}/10`;
+  document.getElementById('progressFill').style.width = (quizIndex*10)+'%';
+  document.getElementById('quizQuestion').textContent = q.question;
+  document.getElementById('quizFeedback').textContent = '';
+  document.getElementById('nextBtn').style.display = 'none';
+  const opts = document.getElementById('quizOptions');
+  opts.innerHTML = '';
+  quiz._shuffled = q.options.map((o,i)=>({o,i})).sort(()=>Math.random()-.5);
+  quiz._shuffled.forEach(({o})=>{
+    const b = document.createElement('button');
+    b.className = 'quiz-opt'; b.textContent = o;
+    opts.appendChild(b);
+  });
+  Array.from(opts.children).forEach((b, idx)=>{
+    b.onclick = ()=>answer(quiz._shuffled[idx].i, b);
+  });
+}
+function answer(chosenIdx, btn){
+  const q = quiz[quizIndex];
+  const opts = document.querySelectorAll('.quiz-opt');
+  opts.forEach(b=>b.disabled=true);
+  quiz._shuffled.forEach((s, idx)=>{
+    if(s.i === q.correctIndex) opts[idx].classList.add('correct');
+  });
+  if(chosenIdx === q.correctIndex){
+    quizScore++;
+    document.getElementById('quizFeedback').innerHTML = '✅ Bonne réponse ! ' + (q.explanation||'');
+  } else {
+    btn.classList.add('wrong');
+    document.getElementById('quizFeedback').innerHTML = '❌ Raté ! ' + (q.explanation||'');
+  }
+  document.getElementById('nextBtn').style.display = 'inline-block';
+  document.getElementById('nextBtn').textContent = quizIndex===9 ? '🏁 Voir le résultat' : 'Question suivante →';
+}
+function nextQuestion(){
+  quizIndex++;
+  if(quizIndex < 10) renderQuestion();
+  else finishQuiz();
+}
+function finishQuiz(){
+  const gained = quizScore * POINTS_PER_QUESTION;
+  points += gained; save('studyai_points', points); updatePoints();
+  const c = courses[currentSubject.id][currentCourse.index];
+  c.quizDone = true; c.quizScore = quizScore; save('studyai_courses', courses);
+  document.getElementById('resultScore').textContent = quizScore + '/10';
+  document.getElementById('resultText').textContent =
+    quizScore===10 ? 'Score parfait, impressionnant ! 🏆' :
+    quizScore>=7 ? 'Très bien joué ! 💪' :
+    quizScore>=5 ? 'Pas mal, relis le cours pour t\'améliorer 📚' :
+    'Courage ! Relis le cours et retente le quiz 💡';
+  document.getElementById('resultPoints').textContent = '+' + gained + ' points gagnés !';
+  showView('result');
+}
+
+// ---------- BOUTIQUE ----------
+function renderShop(){
+  updatePoints();
+  document.getElementById('shopGrid').innerHTML = SHOP_ITEMS.map((it,i)=>
+    `<div class="shop-item"><div class="icon">${it.icon}</div><h3>${it.name}</h3>
+     <div class="price">${it.price} ⭐</div>
+     <button class="btn" style="padding:8px 18px" ${points<it.price?'disabled':''} onclick="buy(${i})">Acheter</button></div>`).join('');
+  document.getElementById('myRewards').innerHTML = rewards.length
+    ? rewards.map(r=>`<p>🎁 ${r}</p>`).join('')
+    : '<p style="color:#64748b">Aucune récompense pour l\'instant.</p>';
+}
+function buy(i){
+  const it = SHOP_ITEMS[i];
+  if(points < it.price) return;
+  points -= it.price;
+  rewards.push(it.icon + ' ' + it.name);
+  save('studyai_points', points); save('studyai_rewards', rewards);
+  toast('🎉 Acheté : ' + it.name + ' !');
+  renderShop();
+}
+
+renderTabs(); renderCourseList(); updatePoints();
+
+/* ===== MODULE ÉVALS ===== */
+
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sj=id=>SUBJECTS.find(s=>s.id===id)||{id,name:id,icon:'📄'};
+const n20=e=>e.grade/e.max*20,avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+const f=v=>(Math.round(v*100)/100).toString().replace('.',',');
+const col=v=>v>=14?'#22c55e':v>=10?'#f59e0b':'#ef4444';
+const dfr=d=>d.split('-').reverse().join('/');
+const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+let evals=ld('studyai_evals',[]),photos=[],flt='all',curId=null,agg=[],evalsMode=false;
+const persist=()=>{try{localStorage.setItem('studyai_evals',JSON.stringify(evals))}catch{toast('⚠️ Stockage plein',true)}};
+const cur=()=>evals.find(x=>x.id===curId);
+
+// ---- Photos (IndexedDB : pas de limite localStorage) ----
+const db=()=>new Promise((ok,ko)=>{const r=indexedDB.open('studyai_photos',1);r.onupgradeneeded=()=>r.result.createObjectStore('p');r.onsuccess=()=>ok(r.result);r.onerror=()=>ko(r.error)});
+const pdb=async(m,k,v)=>{const d=await db();return new Promise((ok,ko)=>{const t=d.transaction('p',m==='get'?'readonly':'readwrite'),s=t.objectStore('p'),r=m==='get'?s.get(k):m==='put'?s.put(v,k):s.delete(k);t.oncomplete=()=>ok(r.result);t.onerror=()=>ko(t.error)})};
+const getPh=async id=>{try{return await pdb('get',id)||[]}catch{return[]}};
+const comp=file=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=e=>{const i=new Image();i.onload=()=>{const s=Math.min(1,1000/i.width),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.65))};i.onerror=ko;i.src=e.target.result};r.onerror=ko;r.readAsDataURL(file)});
+const thumbs=()=>{$('evThumbs').innerHTML=photos.map((p,i)=>`<div class="thumb"><img src="${p}"><button onclick="evDelPhoto(${i})">✕</button></div>`).join('')};
+window.evAddPhotos=async inp=>{for(const fl of inp.files){if(photos.length>=8){toast('⚠️ 8 photos max',true);break}try{photos.push(await comp(fl))}catch{}}inp.value='';thumbs()};
+window.evDelPhoto=i=>{photos.splice(i,1);thumbs()};
+
+// ---- IA ----
+const msgs=(sys,text,ph)=>[{role:'system',content:sys},{role:'user',content:ph.length?[{type:'text',text},...ph.map(p=>({type:'image_url',image_url:{url:p}}))]:text}];
+const busy=async(b,l,fn)=>{const o=b.innerHTML;b.disabled=true;b.innerHTML=l;let ok=true;try{await fn()}catch(e){ok=false;toast('❌ '+(e.message||'Erreur')+' — réessaie',true)}b.disabled=false;b.innerHTML=o;return ok};
+async function analyze(ev,ph){
+  const t=`Matière : ${sj(ev.subject).name}\nSujet : ${ev.topic||'non précisé'}\nNote : ${ev.grade}/${ev.max}\nErreurs signalées par l'élève : ${ev.errors||'aucune précisée'}\n${ph.length?"Les photos jointes sont les pages de l'évaluation (analyse les erreurs visibles).\n":''}\nIdentifie 3 à 8 notions évaluées. Pour chacune : "mastery" (0-100, estimée d'après la note, les erreurs et les photos) et un "advice" court. Réponds UNIQUEMENT avec ce JSON : {"summary":"bilan en 2 phrases","topics":[{"name":"...","mastery":0,"advice":"..."}]}`;
+  const r=await callAI(msgs("Tu es un professeur qui analyse précisément les évaluations d'un élève. Réponds UNIQUEMENT en JSON valide.",t,ph),ph.length>0);
+  if(!Array.isArray(r.topics)||!r.topics.length)throw new Error('Analyse invalide');
+  ev.analysis={summary:r.summary||'',topics:r.topics.filter(x=>x&&x.name).map(x=>({name:String(x.name),mastery:Math.max(0,Math.min(100,+x.mastery||0)),advice:String(x.advice||'')}))};
+  persist();
+}
+async function remedial(subject,weak,ctx,ph,b){
+  await busy(b,'⏳ Création du cours...',async()=>{
+    const t=`Crée un cours de RATTRAPAGE sur mesure en ${sj(subject).name} pour un élève qui a raté ces points :\n${weak.map(w=>'- '+w.name+(w.advice?' ('+w.advice+')':'')).join('\n')||'(à déduire du contexte)'}\n${ctx}\n${ph.length?"Les photos jointes montrent son évaluation.\n":''}Pour chaque point : explication simple, erreur typique à éviter, exemple corrigé pas à pas, mini-exercice avec correction. Termine par une section "Checklist avant la prochaine éval". Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}`;
+    const r=await callAI(msgs('Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.',t,ph),ph.length>0);
+    if(!r.sections||!r.sections.length)throw new Error('Cours vide reçu');
+    (courses[subject]=courses[subject]||[]).unshift({title:'🎯 '+(r.title||'Rattrapage'),sections:r.sections,date:new Date().toLocaleDateString('fr-FR'),quiz:null,quizDone:false});
+    save('studyai_courses',courses);selectSubject(subject);openCourse(0);toast('✅ Cours de rattrapage prêt !');
+  });
+}
+
+// ---- Enregistrer ----
+window.evSave=async()=>{
+  const grade=parseFloat($('evGrade').value),max=parseFloat($('evMax').value)||20;
+  if(isNaN(grade)||grade<0||grade>max)return toast('⚠️ Entre une note valide',true);
+  const topic=$('evTopic').value.trim(),errors=$('evErrors').value.trim(),subject=$('evSubject').value,ph=[...photos];
+  const ev={id:Date.now().toString(36),subject,title:$('evTitle').value.trim()||topic||'Éval '+sj(subject).name,date:$('evDate').value||new Date().toISOString().slice(0,10),grade,max,topic,errors,nPh:ph.length,analysis:null};
+  if(ph.length)try{await pdb('put',ev.id,ph)}catch{ev.nPh=0;toast('⚠️ Photos non sauvegardées',true)}
+  evals.push(ev);persist();
+  let ok=true;
+  if($('evAnalyze').checked&&(topic||errors||ph.length))ok=await busy($('evSaveBtn'),'⏳ Analyse IA...',()=>analyze(ev,ph));
+  photos=[];thumbs();['evTitle','evGrade','evTopic','evErrors'].forEach(i=>$(i).value='');renderEvals();
+  ok?toast('✅ Éval enregistrée'):toast('⚠️ Enregistrée, analyse échouée — relance-la depuis le détail',true);
+};
+
+// ---- Graphiques ----
+function lineChart(d){
+  const W=600,H=220,L=34,R=16,T=16,B=30,n=d.length;
+  const x=i=>n===1?(L+W-R)/2:L+i*(W-L-R)/(n-1),y=v=>T+(H-T-B)*(1-v/20);
+  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
+  [0,5,10,15,20].forEach(v=>s+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#334155"/><text x="${L-6}" y="${y(v)+4}" fill="#64748b" font-size="11" text-anchor="end">${v}</text>`);
+  const a=avg(d.map(n20));
+  s+=`<line x1="${L}" x2="${W-R}" y1="${y(a)}" y2="${y(a)}" stroke="#60a5fa" stroke-dasharray="5 4"/>`;
+  s+=`<path d="${d.map((e,i)=>(i?'L':'M')+x(i)+','+y(n20(e))).join(' ')}" fill="none" stroke="#8b5cf6" stroke-width="2.5"/>`;
+  const st=Math.ceil(n/8);
+  d.forEach((e,i)=>{const v=n20(e);s+=`<circle cx="${x(i)}" cy="${y(v)}" r="5" fill="${col(v)}"><title>${esc(e.title)} : ${f(e.grade)}/${e.max}</title></circle><text x="${x(i)}" y="${y(v)-10}" fill="#e2e8f0" font-size="11" text-anchor="middle">${f(v)}</text>`;if(i%st===0)s+=`<text x="${x(i)}" y="${H-8}" fill="#64748b" font-size="11" text-anchor="middle">${dfr(e.date).slice(0,5)}</text>`});
+  return s+'</svg>';
+}
+window.evFlt=v=>{flt=v;renderEvals()};
+function renderEvals(){
+  $('evFilter').value=flt;
+  const l=evals.filter(e=>flt==='all'||e.subject===flt);
+  if(!l.length){$('evDash').innerHTML='<p style="color:#64748b;margin-bottom:16px">Aucune évaluation pour l\'instant. Ajoute ta première note ci-dessus 👆</p>';$('evList').innerHTML='';return}
+  const sorted=[...l].sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id)),v=sorted.map(n20);
+  const bs={};l.forEach(e=>(bs[e.subject]=bs[e.subject]||[]).push(n20(e)));
+  const subjRows=Object.entries(bs).map(([id,a])=>[id,avg(a),a.length]).sort((a,b)=>b[1]-a[1]);
+  const m={};l.forEach(e=>e.analysis&&e.analysis.topics.forEach(t=>{const k=e.subject+'|'+t.name.trim().toLowerCase();(m[k]=m[k]||{name:t.name,subject:e.subject,a:[],adv:t.advice}).a.push(t.mastery)}));
+  agg=Object.values(m).map(o=>({...o,m:avg(o.a)}));
+  const weak=agg.filter(o=>o.m<60).sort((a,b)=>a.m-b.m).slice(0,8),strong=agg.filter(o=>o.m>=60).sort((a,b)=>b.m-a.m).slice(0,8);
+  const row=(o,c,btn)=>`<div class="brow"><span class="lb" title="${esc(o.name)}">${sj(o.subject).icon} ${esc(o.name)}</span><div class="bar"><i style="width:${o.m}%;background:${c}"></i></div><span class="v" style="color:${c}">${Math.round(o.m)}%</span>${btn?`<button class="btn mini" title="Cours de rattrapage" onclick="evRemTopic(${agg.indexOf(o)})">🎯</button>`:''}</div>`;
+  const last=v[v.length-1];
+  $('evDash').innerHTML=`<div class="stats">
+<div class="stat"><b style="color:${col(avg(v))}">${f(avg(v))}/20</b><small>Moyenne</small></div>
+<div class="stat"><b>${l.length}</b><small>Évals</small></div>
+<div class="stat"><b style="color:#22c55e">${f(Math.max(...v))}/20</b><small>Meilleure</small></div>
+<div class="stat"><b style="color:${col(last)}">${f(last)}/20</b><small>Dernière</small></div></div>
+<div class="card"><h3 style="margin-bottom:10px">📈 Évolution (ramenée sur 20)</h3>${lineChart(sorted)}</div>
+<div class="card"><h3 style="margin-bottom:10px">📚 Moyenne par matière</h3>${subjRows.map(([id,a,n])=>`<div class="brow"><span class="lb">${sj(id).icon} ${esc(sj(id).name)} (${n})</span><div class="bar"><i style="width:${a/20*100}%;background:${col(a)}"></i></div><span class="v" style="color:${col(a)}">${f(a)}</span></div>`).join('')}</div>
+<div class="two"><div class="card"><h3 style="margin-bottom:10px">⚠️ À améliorer</h3>${weak.map(o=>row(o,'#ef4444',1)).join('')||'<p style="color:#64748b">Rien de critique (ou lance une analyse IA).</p>'}${flt!=='all'&&weak.length?`<button class="btn" style="margin-top:10px" onclick="evRemAll()">🎯 Cours sur tous mes points faibles</button>`:''}</div>
+<div class="card"><h3 style="margin-bottom:10px">✅ Réussi</h3>${strong.map(o=>row(o,'#22c55e')).join('')||'<p style="color:#64748b">Pas encore de données.</p>'}</div></div>`;
+  $('evList').innerHTML=[...sorted].reverse().map(e=>`<div class="course-item" onclick="evOpen('${e.id}')"><div><h3>${sj(e.subject).icon} ${esc(e.title)}</h3><small>${esc(sj(e.subject).name)} · ${dfr(e.date)}${e.nPh?' · 📷'+e.nPh:''}${e.analysis?' · 🤖':''}</small></div><span class="badge" style="color:${col(n20(e))};font-size:.95rem">${f(e.grade)}/${e.max}</span></div>`).join('');
+}
+
+// ---- Détail ----
+window.evOpen=id=>{curId=id;showView('evaldetail')};
+async function renderDetail(){
+  const e=cur();if(!e)return showView('evals');
+  const ph=e.nPh?await getPh(e.id):[],a=e.analysis;
+  $('view-evaldetail').innerHTML=`<button class="btn" style="background:#334155;margin-bottom:16px" onclick="showView('evals')">← Retour</button>
+<div class="card"><h2>${sj(e.subject).icon} ${esc(e.title)}</h2><p style="color:#64748b;margin:4px 0 10px">${esc(sj(e.subject).name)} · ${dfr(e.date)}</p>
+<div style="font-size:2.4rem;font-weight:bold;color:${col(n20(e))}">${f(e.grade)}/${e.max}</div>
+${e.topic?`<p style="margin-top:10px"><b>Sujet :</b> ${esc(e.topic)}</p>`:''}${e.errors?`<p style="margin-top:8px;white-space:pre-wrap"><b>Mes erreurs :</b> ${esc(e.errors)}</p>`:''}
+${ph.length?`<div class="photos" style="margin-top:12px">${ph.map(p=>`<img src="${p}" onclick="this.classList.toggle('big')">`).join('')}</div>`:''}</div>
+<div class="card"><h3 style="margin-bottom:10px">🤖 Analyse</h3>${a?`<p style="margin-bottom:10px;line-height:1.6">${esc(a.summary)}</p>`+a.topics.map(t=>`<div class="brow"><span class="lb">${esc(t.name)}</span><div class="bar"><i style="width:${t.mastery}%;background:${t.mastery>=60?'#22c55e':'#ef4444'}"></i></div><span class="v">${t.mastery}%</span></div>${t.advice?`<small style="color:#94a3b8;display:block;margin:-4px 0 8px">💡 ${esc(t.advice)}</small>`:''}`).join(''):'<p style="color:#64748b">Pas encore analysée.</p>'}</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="evRem" onclick="evRemEval()">🎯 Cours de rattrapage</button><button class="btn" style="background:#334155" id="evRe" onclick="evReanalyze()">🤖 ${a?'Réanalyser':'Analyser'}</button><button class="btn" style="background:#334155" onclick="evEdit()">✏️ Modifier</button><button class="btn" style="background:#7f1d1d" onclick="evDel()">🗑️ Supprimer</button></div>`;
+}
+window.evReanalyze=async()=>{const e=cur();await busy($('evRe'),'⏳ Analyse...',async()=>analyze(e,await getPh(e.id)));renderDetail()};
+window.evEdit=()=>{const e=cur(),g=parseFloat(prompt(`Note (sur ${e.max}) :`,e.grade));if(!isNaN(g)&&g>=0&&g<=e.max)e.grade=g;const er=prompt('Mes erreurs :',e.errors);if(er!==null)e.errors=er.trim();persist();renderDetail()};
+window.evDel=async()=>{if(!confirm('Supprimer cette éval ?'))return;evals=evals.filter(x=>x.id!==curId);persist();try{await pdb('del',curId)}catch{}showView('evals')};
+window.evRemEval=async()=>{const e=cur(),ph=await getPh(e.id);remedial(e.subject,(e.analysis?.topics||[]).filter(t=>t.mastery<60),`Sujet : ${e.topic||'—'}\nNote : ${e.grade}/${e.max}\nErreurs de l'élève : ${e.errors||'—'}`,ph,$('evRem'))};
+window.evRemTopic=i=>{const o=agg[i];remedial(o.subject,[{name:o.name,advice:o.adv}],'',[],event.target.closest('button'))};
+window.evRemAll=()=>remedial(flt,agg.filter(o=>o.m<60&&o.subject===flt).map(o=>({name:o.name,advice:o.adv})),'',[],event.target.closest('button'));
+
+// ---- Intégration (vues + onglet) ----
+(document.querySelector('main')||document.querySelector('#app,.container')||document.body).insertAdjacentHTML('beforeend',`<div id="view-evals" class="view">
+<div class="card"><h2 style="margin-bottom:14px">➕ Ajouter une évaluation</h2>
+<div class="r2"><select id="evSubject">${SUBJECTS.map(s=>`<option value="${s.id}">${s.icon} ${s.name}</option>`).join('')}</select><input type="text" id="evTitle" placeholder="Titre (ex : DS n°3)"></div>
+<div class="r3"><input type="date" id="evDate"><input type="number" id="evGrade" step="0.25" min="0" placeholder="Ma note"><input type="number" id="evMax" value="20" min="1" placeholder="Sur"></div>
+<input type="text" id="evTopic" placeholder="Sujet de l'éval (ex : dérivées, Le Horla...)">
+<textarea id="evErrors" rows="3" placeholder="Mes erreurs / ce que j'ai loupé..."></textarea>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><div class="file-drop" style="flex:1;margin:0" onclick="document.getElementById('evCam').click()">📷 Prendre une photo</div><div class="file-drop" style="flex:1;margin:0" onclick="document.getElementById('evGal').click()">🖼️ Galerie (plusieurs)</div></div>
+<input type="file" id="evCam" accept="image/*" capture="environment" style="display:none" onchange="evAddPhotos(this)">
+<input type="file" id="evGal" accept="image/*" multiple style="display:none" onchange="evAddPhotos(this)">
+<div class="thumbs" id="evThumbs"></div>
+<label style="display:block;margin:10px 0 14px;color:#94a3b8"><input type="checkbox" id="evAnalyze" checked> 🤖 Analyser avec l'IA (points forts / à améliorer)</label>
+<button class="btn" id="evSaveBtn" onclick="evSave()">💾 Enregistrer</button></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px;gap:10px"><h2>📊 Mes résultats</h2><select id="evFilter" style="width:auto;margin:0" onchange="evFlt(this.value)"><option value="all">Toutes matières</option>${SUBJECTS.map(s=>`<option value="${s.id}">${s.icon} ${s.name}</option>`).join('')}</select></div>
+<div id="evDash"></div><h2 style="margin:20px 0 12px">📋 Mes notes</h2><div id="evList"></div></div>
+<div id="view-evaldetail" class="view"></div>`);
+$('evDate').value=new Date().toISOString().slice(0,10);
+
+const _sv=window.showView||(n=>{document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));const t=$('view-'+n);t&&t.classList.add('active')}),_rt=window.renderTabs||(()=>{});
+window.showView=n=>{_sv(n);evalsMode=n==='evals'||n==='evaldetail';renderTabs();if(n==='evals')renderEvals();if(n==='evaldetail')renderDetail()};
+window.renderTabs=()=>{_rt();let nav=$('tabs')||document.querySelector('nav');if(!nav){nav=document.createElement('nav');nav.id='tabs';nav.style.cssText='display:flex;gap:8px;padding:14px 16px;overflow-x:auto';document.body.prepend(nav)}if(evalsMode)nav.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));nav.insertAdjacentHTML('afterbegin',`<div class="tab ${evalsMode?'active':''}" onclick="showView('evals')">📊 Mes évals</div>`)};
+renderTabs();
+})();
+
+</script>
+</body>
+</html>
