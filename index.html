@@ -78,6 +78,7 @@ input[type=number],input[type=date],select{width:100%;background:#0f172a;border:
 .photos img{width:140px;border-radius:8px;margin:0 8px 8px 0;cursor:pointer}.photos img.big{width:100%}
 button.mini{padding:4px 8px;font-size:.8rem}
 </style>
+<style>.fig{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:10px;margin:10px 0}.fig svg{width:100%;height:auto;max-height:340px;display:block}</style>
 <base target="_blank">
 </head>
 <body>
@@ -145,7 +146,7 @@ button.mini{padding:4px 8px;font-size:.8rem}
 </main>
 
 <div class="toast" id="toast"></div>
-<div class="api-badge">Puter.js · v4</div>
+<div class="api-badge">Puter.js · v5</div>
 
 <script>
 const SUBJECTS = [
@@ -262,12 +263,46 @@ document.getElementById('photoInput').addEventListener('change', e=>{
   reader.readAsDataURL(file);
 });
 
+// ---------- SCHÉMAS & ILLUSTRATIONS ----------
+const SVG_RULES = `RÈGLES SVG : schéma simple et lisible sur UNE seule ligne : <svg viewBox='0 0 600 300'> avec attributs entre apostrophes (JAMAIS de guillemets doubles dans le svg), pas de script ni d'image externe, texte fill='#e2e8f0' font-size='16' text-anchor='middle', formes aux couleurs #3b82f6 #8b5cf6 #22c55e #f59e0b #ef4444, flèches avec <path> + petit triangle, tout doit rester dans le viewBox.`;
+const COURSE_FMT = `{"title":"...","sections":[{"heading":"...","content":"...","emoji":"un emoji illustrant la section","svg":"<svg ...>...</svg>"}]}
+Fais 5 à 7 sections. Dans chaque section où un visuel aide (cycle, étapes, comparaison, schéma annoté, courbe, frise chronologique, structure, formule illustrée), mets un schéma dans "svg". ${SVG_RULES} Si aucun schéma n'est utile : "svg":"". Le "content" peut contenir des listes avec •, des tableaux en texte aligné et des exemples chiffrés.`;
+function cleanSVG(str){
+  if(!str || typeof str!=='string' || !/<svg/i.test(str)) return '';
+  try{
+    if(!/xmlns=/.test(str)) str = str.replace(/<svg/i,'<svg xmlns="http://www.w3.org/2000/svg"');
+    const doc = new DOMParser().parseFromString(str,'image/svg+xml');
+    if(doc.querySelector('parsererror')) return '';
+    const root = doc.documentElement;
+    root.querySelectorAll('script,foreignObject,iframe,object,embed,image,a,style').forEach(n=>n.remove());
+    [root,...root.querySelectorAll('*')].forEach(n=>[...n.attributes].forEach(a=>{ if(/^on/i.test(a.name)||/javascript:/i.test(a.value)) n.removeAttribute(a.name); }));
+    root.removeAttribute('width'); root.removeAttribute('height');
+    if(!root.getAttribute('viewBox')) root.setAttribute('viewBox','0 0 600 300');
+    return new XMLSerializer().serializeToString(root);
+  }catch(e){ return ''; }
+}
+async function genFigure(i, btn){
+  const c = courses[currentSubject.id][currentCourse.index], sec = c.sections[i];
+  btn.disabled = true; btn.textContent = '⏳ Schéma...';
+  try{
+    const r = await callAI([
+      { role:'system', content:'Tu crées des schémas pédagogiques SVG. Réponds UNIQUEMENT en JSON valide.' },
+      { role:'user', content:`Crée un schéma SVG pédagogique pour cette section de cours (${c.title} — ${sec.heading}) :\n${sec.content}\n\nRéponds UNIQUEMENT avec : {"svg":"<svg ...>...</svg>"}\n${SVG_RULES}` }
+    ], false);
+    if(!cleanSVG(r.svg)) throw new Error('Schéma invalide');
+    sec.svg = r.svg; save('studyai_courses', courses); openCourse(currentCourse.index);
+  }catch(e){ toast('❌ ' + e.message + ' — réessaie', true); btn.disabled = false; btn.textContent = '🖼️ Générer un schéma'; }
+}
+
 // ---------- API (Puter.js : GPT/Claude/Gemini gratuits, sans clé) ----------
 function extractJSON(txt){
   txt = (txt||'').replace(/```json|```/g,'').trim();
   const start = txt.indexOf('{'), end = txt.lastIndexOf('}');
   if(start===-1 || end===-1 || end < start) throw new Error('Réponse invalide de l\'IA');
-  return JSON.parse(txt.slice(start, end+1));
+  const raw = txt.slice(start, end+1);
+  const tries = [raw, raw.replace(/[\r\n]+/g,' '), raw.replace(/"svg"\s*:\s*"[\s\S]*?<\/svg>"/g,'"svg":""').replace(/[\r\n]+/g,' ')];
+  for(const t of tries){ try{ return JSON.parse(t); }catch(e){} }
+  throw new Error('Réponse invalide de l\'IA');
 }
 
 let _visModels=null;
@@ -338,20 +373,20 @@ async function generateCourse(){
     if(isMusic && link && !photoBase64){
       messages = [
         { role:'system', content:'Tu es un professeur de musique passionné et pédagogue. Si tu connais cette chanson, analyse-la en détail. Sinon, explique ce que tu peux et propose de coller les paroles. Réponds UNIQUEMENT en JSON valide.' },
-        { role:'user', content:`Voici une musique (lien ou titre) : "${link}". Fais un cours SIMPLIFIÉ et structuré : présentation de l'artiste/groupe, style musical et époque, analyse des thèmes et du message, vocabulaire musical utile, et si tu connais les paroles, analyse un passage marquant. Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` }
+        { role:'user', content:`Voici une musique (lien ou titre) : "${link}". Fais un cours SIMPLIFIÉ et structuré : présentation de l'artiste/groupe, style musical et époque, analyse des thèmes et du message, vocabulaire musical utile, et si tu connais les paroles, analyse un passage marquant. Réponds UNIQUEMENT avec ce JSON : ${COURSE_FMT}` }
       ];
     } else if(photoBase64){
       messages = [
         { role:'system', content:'Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.' },
         { role:'user', content:[
-            { type:'text', text:`Voici une photo${isMusic ? ' de paroles de chanson / partition / fiche musicale' : ' de ma fiche de '+currentSubject.name}${topic ? ' (sujet : "'+topic+'")' : ''}${isMusic && link ? ' associée à la musique : "'+link+'"' : ''}. Génère un cours SIMPLIFIÉ et structuré sur ce contenu. Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` },
+            { type:'text', text:`Voici une photo${isMusic ? ' de paroles de chanson / partition / fiche musicale' : ' de ma fiche de '+currentSubject.name}${topic ? ' (sujet : "'+topic+'")' : ''}${isMusic && link ? ' associée à la musique : "'+link+'"' : ''}. Génère un cours SIMPLIFIÉ et structuré sur ce contenu. Réponds UNIQUEMENT avec ce JSON : ${COURSE_FMT}` },
             { type:'image_url', image_url:{ url: photoBase64 } }
         ]}
       ];
     } else {
       messages = [
         { role:'system', content:'Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.' },
-        { role:'user', content:`Génère un cours SIMPLIFIÉ et structuré en ${currentSubject.name} sur le sujet : "${topic}". Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}` }
+        { role:'user', content:`Génère un cours SIMPLIFIÉ et structuré en ${currentSubject.name} sur le sujet : "${topic}". Réponds UNIQUEMENT avec ce JSON : ${COURSE_FMT}` }
       ];
     }
     const result = await callAI(messages, !!photoBase64);
@@ -376,8 +411,8 @@ function openCourse(i){
   currentCourse = { subjectId: currentSubject.id, index: i };
   const c = courses[currentSubject.id][i];
   document.getElementById('courseTitle').textContent = c.title;
-  document.getElementById('courseContent').innerHTML = c.sections.map(s=>
-    `<div class="section-cours"><h3>${s.heading}</h3><p>${s.content}</p></div>`).join('');
+  document.getElementById('courseContent').innerHTML = c.sections.map((s,i)=>
+    { const fig = cleanSVG(s.svg); return `<div class="section-cours"><h3>${s.emoji?s.emoji+' ':''}${s.heading}</h3>${fig?`<div class="fig">${fig}</div>`:`<button class="btn mini" style="margin-bottom:10px;background:#334155" onclick="genFigure(${i},this)">🖼️ Générer un schéma</button>`}<p>${s.content}</p></div>`; }).join('');
   document.getElementById('startQuizBtn').style.display = c.quizDone ? 'none' : 'inline-block';
   showView('course');
 }
@@ -515,7 +550,7 @@ async function analyze(ev,ph){
 }
 async function remedial(subject,weak,ctx,ph,b){
   await busy(b,'⏳ Création du cours...',async()=>{
-    const t=`Crée un cours de RATTRAPAGE sur mesure en ${sj(subject).name} pour un élève qui a raté ces points :\n${weak.map(w=>'- '+w.name+(w.advice?' ('+w.advice+')':'')).join('\n')||'(à déduire du contexte)'}\n${ctx}\n${ph.length?"Les photos jointes montrent son évaluation.\n":''}Pour chaque point : explication simple, erreur typique à éviter, exemple corrigé pas à pas, mini-exercice avec correction. Termine par une section "Checklist avant la prochaine éval". Réponds UNIQUEMENT avec ce JSON : {"title":"...","sections":[{"heading":"...","content":"..."}]}`;
+    const t=`Crée un cours de RATTRAPAGE sur mesure en ${sj(subject).name} pour un élève qui a raté ces points :\n${weak.map(w=>'- '+w.name+(w.advice?' ('+w.advice+')':'')).join('\n')||'(à déduire du contexte)'}\n${ctx}\n${ph.length?"Les photos jointes montrent son évaluation.\n":''}Pour chaque point : explication simple, erreur typique à éviter, exemple corrigé pas à pas, mini-exercice avec correction. Termine par une section "Checklist avant la prochaine éval". Réponds UNIQUEMENT avec ce JSON : ${COURSE_FMT}`;
     const r=await callAI(msgs('Tu es un professeur pédagogue qui explique simplement, avec des exemples concrets. Réponds UNIQUEMENT en JSON valide.',t,ph),ph.length>0);
     if(!r.sections||!r.sections.length)throw new Error('Cours vide reçu');
     (courses[subject]=courses[subject]||[]).unshift({title:'🎯 '+(r.title||'Rattrapage'),sections:r.sections,date:new Date().toLocaleDateString('fr-FR'),quiz:null,quizDone:false});
