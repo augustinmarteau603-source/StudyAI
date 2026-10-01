@@ -146,7 +146,7 @@ button.mini{padding:4px 8px;font-size:.8rem}
 </main>
 
 <div class="toast" id="toast"></div>
-<div class="api-badge">Puter.js · v5</div>
+<div class="api-badge">Puter.js · v6</div>
 
 <script>
 const SUBJECTS = [
@@ -655,5 +655,207 @@ renderTabs();
 })();
 
 </script>
+<script>
+/* ===== MODULE POTES / ÉVALS PRÉVUES / ÉVAL BLANCHE ===== */
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cl=s=>String(s??'').replace(/[<>]/g,'');
+const sj=id=>SUBJECTS.find(s=>s.id===id)||{id,name:id,icon:'📄'};
+const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{toast('⚠️ Stockage plein',true)}};
+const subOpts=()=>SUBJECTS.map(s=>`<option value="${s.id}">${s.icon} ${s.name}</option>`).join('');
+const busyB=async(b,l,fn)=>{const o=b.innerHTML;b.disabled=true;b.innerHTML=l;try{await fn()}catch(e){toast('❌ '+(e.message||'Erreur')+' — réessaie',true)}b.disabled=false;b.innerHTML=o};
+let inbox=ld('studyai_inbox',[]),duels=ld('studyai_duels',[]),planned=ld('studyai_planned',[]),mocks=ld('studyai_mocks',[]),pq=null,mock=null,tm=0,xm='';
+const pseudo=()=>ld('studyai_pseudo','')||'Moi';
+(async()=>{try{const u=await puter.auth.getUser();if(u&&u.username&&!ld('studyai_pseudo',''))sv('studyai_pseudo',u.username)}catch{}})();
+
+/* ---- codes de partage ---- */
+const b64=u=>{let s='';u.forEach(b=>s+=String.fromCharCode(b));return btoa(s)};
+const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+async function enc(o){
+  const u=new TextEncoder().encode(JSON.stringify(o));
+  if(window.CompressionStream){const s=new Blob([u]).stream().pipeThrough(new CompressionStream('gzip'));return 'SAI1:'+b64(new Uint8Array(await new Response(s).arrayBuffer()))}
+  return 'SAI0:'+b64(u);
+}
+async function dec(t){
+  t=t.trim();const k=t.slice(0,5),u=unb64(t.slice(5).replace(/\s/g,''));
+  if(k==='SAI1:'){const s=new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'));return JSON.parse(await new Response(s).text())}
+  if(k==='SAI0:')return JSON.parse(new TextDecoder().decode(u));
+  throw new Error('Code invalide');
+}
+const vq=a=>Array.isArray(a)?a.slice(0,20).filter(x=>x&&typeof x.question==='string'&&Array.isArray(x.options)&&x.options.length>=2&&x.options[x.correctIndex]!==undefined).map(x=>({question:cl(x.question),options:x.options.slice(0,6).map(cl),correctIndex:+x.correctIndex,explanation:cl(x.explanation)})):null;
+async function genQuiz(c){
+  const r=await callAI([{role:'system',content:'Tu crées des quiz pour élèves. Réponds UNIQUEMENT en JSON valide.'},{role:'user',content:`À partir de ce cours, crée un quiz de 10 questions à choix multiples (4 options, 1 bonne réponse). Réponds UNIQUEMENT avec ce JSON : {"questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}\n\nCours : ${c.title}\n${c.sections.map(s=>s.heading+': '+s.content).join('\n')}`}],false);
+  const q=vq(r.questions)||[];if(q.length<5)throw new Error('Quiz invalide');return q;
+}
+
+/* ---- ONGLET ENTRE POTES ---- */
+function renderFriends(keep){
+  if(!keep)$('fPlay').innerHTML='';
+  const list=[];SUBJECTS.forEach(s=>(courses[s.id]||[]).forEach((c,i)=>list.push(`<option value="${s.id}|${i}">${s.icon} ${esc(c.title)}</option>`)));
+  const g={};duels.forEach(d=>(g[d.title]=g[d.title]||[]).push(d));
+  $('fMain').innerHTML=`<div class="card"><h2 style="margin-bottom:6px">👥 Réviser entre potes</h2><p style="color:#94a3b8;margin-bottom:12px;line-height:1.5">Envoie un de tes cours (avec un quiz défi) à un pote : il le colle ici, l'ajoute à ses cours et fait le quiz. Il te renvoie son score et vous comparez !</p>
+<input type="text" id="fPseudo" placeholder="Ton pseudo (visible par tes potes)" value="${esc(ld('studyai_pseudo',''))}" onchange="fPseudo(this.value)"></div>
+<div class="card"><h3 style="margin-bottom:10px">📤 Envoyer un cours</h3>${list.length?`<select id="fCourse">${list.join('')}</select>
+<label style="display:block;margin:0 0 12px;color:#94a3b8"><input type="checkbox" id="fWithQuiz" checked> 🎮 Inclure un quiz défi (10 questions)</label>
+<button class="btn" id="fSendBtn" onclick="fSend()">🔗 Générer le code à envoyer</button>
+<div id="fOutBox" style="display:none;margin-top:12px"><textarea id="fOut" rows="4" readonly onclick="this.select()"></textarea><button class="btn" onclick="fCopy('fOut')">📋 Copier</button> <button class="btn btn-secondary" onclick="fShare()">📲 Partager</button></div>`:'<p style="color:#64748b">Crée d\'abord un cours dans une matière 📖</p>'}</div>
+<div class="card"><h3 style="margin-bottom:10px">📥 Recevoir (cours ou résultat d'un pote)</h3><textarea id="fIn" rows="3" placeholder="Colle ici le code SAI1:... reçu"></textarea><button class="btn" onclick="fImport()">📥 Importer</button></div>
+${inbox.length?`<h3 style="margin:16px 0 10px">📬 Cours reçus</h3>`+inbox.map((m,i)=>`<div class="course-item" style="cursor:default"><div><h3>${sj(m.subject).icon} ${esc(m.course.title)}</h3><small>de ${esc(m.from)} · ${esc(m.date)}${m.quiz?' · 🎮 quiz inclus':''}</small></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn mini" onclick="fAdd(${i})">📖 Ajouter</button><button class="btn mini" id="fq${i}" onclick="fDuel(${i})">🎮 Quiz</button><button class="delete-btn" onclick="fDel(${i})">🗑️</button></div></div>`).join(''):''}
+${Object.keys(g).length?`<h3 style="margin:16px 0 10px">⚔️ Défis</h3><div class="card">`+Object.entries(g).map(([t,a])=>{const mx=Math.max(...a.map(d=>d.score));return `<p style="margin:6px 0"><b>${esc(t)}</b><br>`+a.map(d=>`${a.length>1&&d.score===mx?'🏆 ':''}${d.mine?'Moi':esc(d.who)} : <b>${d.score}/${d.total}</b>`).join(' · ')+'</p>'}).join('')+'</div>':''}`;
+}
+window.fPseudo=v=>sv('studyai_pseudo',cl(v).trim().slice(0,24));
+window.fCopy=async id=>{const e=$(id);e.select();try{await navigator.clipboard.writeText(e.value)}catch{document.execCommand('copy')}toast('📋 Copié !')};
+window.fShare=()=>{const t=$('fOut').value;if(navigator.share)navigator.share({text:t}).catch(()=>{});else fCopy('fOut')};
+window.fSend=()=>{
+  const v=$('fCourse').value,[s,i]=v.split('|'),c=courses[s][+i];
+  return busyB($('fSendBtn'),'⏳ Création...',async()=>{
+    let quiz=null;
+    if($('fWithQuiz').checked){quiz=c.quizShared||await genQuiz(c);c.quizShared=quiz;save('studyai_courses',courses)}
+    $('fOut').value=await enc({t:'c',from:pseudo(),subject:s,course:{title:c.title,sections:c.sections},quiz});
+    $('fOutBox').style.display='block';
+  });
+};
+window.fImport=async()=>{
+  try{
+    const o=await dec($('fIn').value);
+    if(o.t==='c'&&o.course&&Array.isArray(o.course.sections)){
+      inbox.unshift({from:cl(o.from||'Un pote').slice(0,24),subject:SUBJECTS.some(s=>s.id===o.subject)?o.subject:SUBJECTS[0].id,date:new Date().toLocaleDateString('fr-FR'),quiz:vq(o.quiz),
+        course:{title:cl(o.course.title||'Cours').slice(0,120),sections:o.course.sections.slice(0,12).map(s=>({heading:cl(s.heading),content:cl(s.content),emoji:cl(s.emoji).slice(0,4),svg:typeof s.svg==='string'?s.svg:''}))}});
+      sv('studyai_inbox',inbox);toast('📥 Cours reçu !');
+    }else if(o.t==='r'&&Number.isFinite(+o.score)){
+      duels.push({mine:false,who:cl(o.from||'Pote').slice(0,24),title:cl(o.title).slice(0,120),score:+o.score,total:+o.total||10});sv('studyai_duels',duels);toast('🏁 Résultat ajouté aux défis');
+    }else throw 0;
+    $('fIn').value='';renderFriends();
+  }catch(e){toast('❌ Code invalide ou incomplet',true)}
+};
+window.fAdd=i=>{const m=inbox[i];(courses[m.subject]=courses[m.subject]||[]).unshift({title:'👥 '+m.course.title+' (de '+m.from+')',sections:m.course.sections,date:m.date,quiz:null,quizDone:false});save('studyai_courses',courses);toast('✅ Ajouté dans '+sj(m.subject).name);renderFriends()};
+window.fDel=i=>{inbox.splice(i,1);sv('studyai_inbox',inbox);renderFriends()};
+window.fDuel=async i=>{
+  const m=inbox[i];
+  if(!m.quiz)await busyB($('fq'+i),'⏳...',async()=>{m.quiz=await genQuiz(m.course);sv('studyai_inbox',inbox)});
+  if(m.quiz){pq={q:m.quiz,i:0,s:0,title:m.course.title,from:m.from};renderQ();window.scrollTo(0,0)}
+};
+function renderQ(){
+  const x=pq.q[pq.i];pq.o=x.options.map((t,k)=>({t,k})).sort(()=>Math.random()-.5);
+  $('fPlay').innerHTML=`<div class="card"><div class="q-num">⚔️ ${esc(pq.title)} — ${pq.i+1}/${pq.q.length}</div><div class="progress-bar"><div class="progress-fill" style="width:${pq.i/pq.q.length*100}%"></div></div><h3 style="margin-bottom:14px">${esc(x.question)}</h3>${pq.o.map((a,j)=>`<button class="quiz-opt" onclick="fAns(${j})">${esc(a.t)}</button>`).join('')}<p id="fFb" style="margin:10px 0;min-height:1.4em"></p><button class="btn" id="fNext" style="display:none" onclick="fNext()">${pq.i===pq.q.length-1?'🏁 Résultat':'Suivant →'}</button></div>`;
+}
+window.fAns=j=>{
+  const x=pq.q[pq.i],b=document.querySelectorAll('#fPlay .quiz-opt');
+  b.forEach((e,k)=>{e.disabled=true;if(pq.o[k].k===x.correctIndex)e.classList.add('correct')});
+  if(pq.o[j].k===x.correctIndex){pq.s++;$('fFb').textContent='✅ '+(x.explanation||'')}else{b[j].classList.add('wrong');$('fFb').textContent='❌ '+(x.explanation||'')}
+  $('fNext').style.display='inline-block';
+};
+window.fNext=async()=>{
+  pq.i++;if(pq.i<pq.q.length)return renderQ();
+  const gain=pq.s*5;points+=gain;save('studyai_points',points);updatePoints();
+  duels.push({mine:true,who:pq.from,title:pq.title,score:pq.s,total:pq.q.length});sv('studyai_duels',duels);
+  const code=await enc({t:'r',from:pseudo(),title:pq.title,score:pq.s,total:pq.q.length});
+  $('fPlay').innerHTML=`<div class="card result-box"><h2>🏁 Défi terminé !</h2><div class="big">${pq.s}/${pq.q.length}</div><p style="color:#fbbf24;font-weight:bold">+${gain} points</p><p style="color:#94a3b8;margin:12px 0">Envoie ce code à ${esc(pq.from)} pour qu'il voie ton score :</p><textarea id="fRes" rows="2" readonly onclick="this.select()">${code}</textarea><button class="btn" onclick="fCopy('fRes')">📋 Copier</button></div>`;
+  renderFriends(true);
+};
+
+/* ---- ONGLET ÉVALS PRÉVUES ---- */
+const jx=d=>Math.round((new Date(d+'T00:00:00')-new Date(new Date().toDateString()))/864e5);
+function renderPlanned(){
+  const l=[...planned].sort((a,b)=>a.date.localeCompare(b.date));
+  $('pList').innerHTML=l.length?l.map(p=>{const j=jx(p.date),c=j<0?'#64748b':j<=2?'#ef4444':j<=7?'#f59e0b':'#60a5fa',t=j<0?'Passée':j===0?"Aujourd'hui":j===1?'Demain':'J-'+j,i=planned.indexOf(p);
+    return `<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h3>${sj(p.subject).icon} ${esc(p.title)}</h3><small style="color:#64748b">${esc(sj(p.subject).name)} · ${p.date.split('-').reverse().join('/')}${p.topic?' · '+esc(p.topic):''}</small></div><span class="badge" style="color:${c};background:${c}22;font-size:1rem">${t}</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn mini" onclick="pTest(${i})">🧪 Me tester</button><button class="btn mini" style="background:#334155" onclick="pDone(${i})">✅ Passée → saisir la note</button><button class="btn mini" style="background:#7f1d1d" onclick="pDel(${i})">🗑️</button></div></div>`}).join(''):'<p style="color:#64748b">Aucune éval prévue. Ajoute-en une ci-dessus 👆</p>';
+}
+window.pAdd=()=>{
+  const date=$('pDate').value,topic=$('pTopic').value.trim(),subject=$('pSubject').value;
+  if(!date)return toast("⚠️ Choisis la date de l'éval",true);
+  planned.push({id:Date.now().toString(36),subject,date,topic,title:$('pTitle').value.trim()||'Éval '+sj(subject).name});
+  sv('studyai_planned',planned);['pTitle','pTopic'].forEach(i=>$(i).value='');renderPlanned();toast('📅 Éval ajoutée');
+};
+window.pDel=i=>{planned.splice(i,1);sv('studyai_planned',planned);renderPlanned()};
+window.pTest=i=>{const p=planned[i];mock={pre:{subject:p.subject,topic:p.topic,planned:p.title}};showView('mock')};
+window.pDone=i=>{
+  const p=planned[i];showView('evals');
+  $('evSubject').value=p.subject;$('evTitle').value=p.title;$('evDate').value=p.date;$('evTopic').value=p.topic||'';
+  planned.splice(i,1);sv('studyai_planned',planned);toast('✏️ Entre ta note puis enregistre');
+};
+
+/* ---- ONGLET ÉVAL BLANCHE ---- */
+window.mFill=()=>{const cs=courses[$('mSubject').value]||[];$('mCourse').innerHTML='<option value="all">📚 Tous mes cours de la matière</option>'+cs.map((c,i)=>`<option value="${i}">${esc(c.title)}</option>`).join('')};
+function renderMock(){
+  clearInterval(tm);const pre=(mock&&mock.pre)||{};mock=null;
+  $('mBody').innerHTML=`<div class="card"><h2 style="margin-bottom:6px">🧪 Éval blanche</h2><p style="color:#94a3b8;margin-bottom:12px;line-height:1.5">L'IA te génère une éval comme en vrai, la corrige et te dit si tu es prêt${pre.planned?` pour « ${esc(pre.planned)} »`:''}.</p>
+<div class="r2"><select id="mSubject" onchange="mFill()">${subOpts()}</select><select id="mCourse"></select></div>
+<input type="text" id="mTopic" placeholder="Chapitres / thème à tester (facultatif si tu choisis un cours)">
+<div class="r2"><select id="mFmt"><option value="full">📝 Éval complète (QCM + questions rédigées)</option><option value="qcm">⚡ QCM éclair (10 questions)</option></select><select id="mLvl"><option value="normal">Niveau normal</option><option value="facile">Plutôt facile</option><option value="difficile">Difficile (DS exigeant)</option></select></div>
+<button class="btn" id="mGenBtn" onclick="mGen()">🧪 Générer mon éval</button></div>
+${mocks.length?`<h3 style="margin:16px 0 10px">🕘 Mes derniers tests</h3>`+mocks.slice(0,8).map(m=>`<div class="course-item" style="cursor:default"><div><h3>${sj(m.subject).icon} ${esc(m.title)}</h3><small>${esc(m.date)}</small></div><span class="badge" style="color:${m.note>=14?'#22c55e':m.note>=10?'#f59e0b':'#ef4444'}">${m.note}/20</span></div>`).join(''):''}`;
+  if(pre.subject)$('mSubject').value=pre.subject;mFill();if(pre.topic)$('mTopic').value=pre.topic;
+  window._mPre=pre;
+}
+const norm=r=>(r.items||[]).map(x=>{
+  if(x&&x.type==='qcm'&&x.question&&Array.isArray(x.options)&&x.options.length>=2&&x.options[x.correctIndex]!==undefined){const o=x.options.map((t,k)=>({t:String(t),k})).sort(()=>Math.random()-.5);return{type:'qcm',question:String(x.question),options:o.map(a=>a.t),correctIndex:o.findIndex(a=>a.k===+x.correctIndex),explanation:String(x.explanation||''),topic:String(x.topic||'Général'),points:+x.points||1}}
+  if(x&&x.type==='open'&&x.question)return{type:'open',question:String(x.question),expected:String(x.expected||''),topic:String(x.topic||'Général'),points:+x.points||3};
+  return null}).filter(Boolean);
+window.mGen=()=>{
+  const subject=$('mSubject').value,ci=$('mCourse').value,topic=$('mTopic').value.trim(),cs=courses[subject]||[],src=ci==='all'?cs:[cs[+ci]];
+  const ctx=src.filter(Boolean).map(c=>c.title+'\n'+c.sections.map(s=>s.heading+': '+s.content).join('\n')).join('\n\n').slice(0,7000);
+  if(!ctx&&!topic)return toast('⚠️ Précise un thème ou crée un cours dans cette matière',true);
+  const full=$('mFmt').value==='full',lvl=$('mLvl').value,pre=window._mPre||{};
+  return busyB($('mGenBtn'),'⏳ Génération...',async()=>{
+    const fmt=full?'8 QCM de 1 point (type "qcm") + 3 questions rédigées (type "open") de 4 points chacune (total 20)':'10 QCM (type "qcm") de 2 points chacun (total 20)';
+    const r=await callAI([{role:'system',content:'Tu es un professeur qui rédige des évaluations réalistes. Réponds UNIQUEMENT en JSON valide.'},{role:'user',content:`Crée une éval blanche de ${sj(subject).name}, niveau ${lvl}, sur : ${topic||'le contenu du cours ci-dessous'}.\nFormat : ${fmt}.\nRéponds UNIQUEMENT avec : {"title":"...","items":[{"type":"qcm","question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"...","topic":"notion testée","points":1},{"type":"open","question":"...","expected":"éléments de réponse attendus","topic":"notion testée","points":4}]}\n${ctx?'\nCours de référence :\n'+ctx:''}`}],false);
+    const items=norm(r);if(items.length<5)throw new Error('Éval invalide');
+    mock={subject,items,title:r.title||'Éval blanche '+sj(subject).name,planned:pre.planned||''};renderExam();window.scrollTo(0,0);
+  });
+};
+function renderExam(){
+  const t0=Date.now();clearInterval(tm);
+  tm=setInterval(()=>{const e=$('mTimer');if(!e)return clearInterval(tm);const s=Math.floor((Date.now()-t0)/1000);e.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000);
+  $('mBody').innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h2>${esc(mock.title)}</h2><b id="mTimer" style="color:#fbbf24">00:00</b></div><p style="color:#64748b;margin-top:4px">Sur 20 · fais-la comme en vrai, sans regarder ton cours 😉</p></div>`
+  +mock.items.map((x,i)=>`<div class="card"><div class="q-num">Question ${i+1} · ${x.points} pt${x.points>1?'s':''} · ${esc(x.topic)}</div><h3 style="margin-bottom:12px">${esc(x.question)}</h3>${x.type==='qcm'?x.options.map((t,k)=>`<label class="quiz-opt"><input type="radio" name="mq${i}" value="${k}"> ${esc(t)}</label>`).join(''):`<textarea id="mo${i}" rows="4" placeholder="Ta réponse rédigée..."></textarea>`}</div>`).join('')
+  +`<button class="btn" id="mSubmitBtn" onclick="mSubmit()">📨 Rendre ma copie</button> <button class="btn btn-secondary" onclick="mHome()">✕ Abandonner</button>`;
+}
+window.mHome=()=>{mock=null;renderMock()};
+window.mSubmit=()=>{
+  const it=mock.items,ans=it.map((x,i)=>x.type==='qcm'?(document.querySelector(`input[name=mq${i}]:checked`)||{}).value:$('mo'+i).value.trim());
+  return busyB($('mSubmitBtn'),'⏳ Correction...',async()=>{
+    const op=it.map((x,i)=>({x,i})).filter(o=>o.x.type==='open'),g={};
+    if(op.length){
+      const r=await callAI([{role:'system',content:'Tu es un correcteur juste mais exigeant. Réponds UNIQUEMENT en JSON valide.'},{role:'user',content:`Corrige ces réponses d'élève. Pour chaque question : un score entre 0 et le barème (demi-points possibles) et un commentaire court (ce qui manque). Réponds UNIQUEMENT avec : {"grades":[{"i":0,"score":0,"comment":"..."}]}\n\n`+op.map(o=>`Q${o.i} (barème ${o.x.points}) : ${o.x.question}\nRéponse attendue : ${o.x.expected}\nRéponse de l'élève : ${ans[o.i]||'(vide)'}`).join('\n\n')}],false);
+      (r.grades||[]).forEach(z=>g[z.i]=z);
+    }
+    clearInterval(tm);
+    let got=0,max=0;const tp={},sc=it.map((x,i)=>{
+      const s=x.type==='qcm'?(ans[i]!==undefined&&+ans[i]===x.correctIndex?x.points:0):Math.max(0,Math.min(x.points,+(g[i]&&g[i].score)||0));
+      got+=s;max+=x.points;const t=tp[x.topic]=tp[x.topic]||{g:0,m:0};t.g+=s;t.m+=x.points;return s});
+    const note=Math.round(got/max*20*10)/10,fr=v=>String(v).replace('.',','),col=note>=14?'#22c55e':note>=10?'#f59e0b':'#ef4444';
+    const verdict=note>=14?['✅ Tu es prêt !','Continue comme ça, une dernière relecture rapide et c\'est bon.']:note>=10?['🟠 Presque prêt','Il reste des points fragiles : retravaille les notions en rouge ci-dessous puis refais un test.']:['🔴 Pas encore prêt','Reprends les cours des notions en rouge, puis refais une éval blanche.'];
+    const gain=Math.round(note)*3;points+=gain;save('studyai_points',points);updatePoints();
+    mocks.unshift({subject:mock.subject,title:mock.title,note,date:new Date().toLocaleDateString('fr-FR')});sv('studyai_mocks',mocks.slice(0,30));
+    const rows=Object.entries(tp).map(([n,a])=>{const p=Math.round(a.g/a.m*100),c=p>=70?'#22c55e':p>=50?'#f59e0b':'#ef4444';return `<div class="brow"><span class="lb" title="${esc(n)}">${esc(n)}</span><div class="bar"><i style="width:${p}%;background:${c}"></i></div><span class="v" style="color:${c}">${p}%</span></div>`}).join('');
+    $('mBody').innerHTML=`<div class="card result-box"><div class="big" style="color:${col}">${fr(note)}/20</div><h2 style="margin:8px 0">${verdict[0]}</h2><p style="color:#94a3b8">${verdict[1]}</p><p style="color:#fbbf24;font-weight:bold;margin-top:8px">+${gain} points</p></div>
+<div class="card"><h3 style="margin-bottom:10px">📊 Par notion</h3>${rows}</div>
+<h3 style="margin:16px 0 10px">🔍 Correction</h3>`+it.map((x,i)=>{const r=sc[i]/x.points,ic=r>=.99?'✅':r>0?'🟠':'❌';return `<div class="card"><div class="q-num">${ic} Question ${i+1} · ${fr(sc[i])}/${x.points}</div><h3 style="margin-bottom:8px">${esc(x.question)}</h3>${x.type==='qcm'?`<p>Bonne réponse : <b style="color:#22c55e">${esc(x.options[x.correctIndex])}</b></p>${x.explanation?`<p style="color:#94a3b8;margin-top:6px">💡 ${esc(x.explanation)}</p>`:''}`:`<p style="color:#94a3b8;white-space:pre-wrap"><b>Ta réponse :</b> ${esc(ans[i]||'(vide)')}</p><p style="margin-top:6px">💬 ${esc((g[i]&&g[i].comment)||'')}</p><p style="color:#22c55e;margin-top:6px"><b>Attendu :</b> ${esc(x.expected)}</p>`}</div>`}).join('')
+    +`<button class="btn" onclick="mHome()">🔁 Nouvelle éval</button> <button class="btn btn-secondary" onclick="selectSubject('${mock.subject}')">📖 Revoir mes cours</button>`;
+    window.scrollTo(0,0);
+  });
+};
+
+/* ---- Intégration ---- */
+(document.querySelector('main')||document.body).insertAdjacentHTML('beforeend',`<div id="view-friends" class="view"><div id="fPlay"></div><div id="fMain"></div></div>
+<div id="view-planned" class="view"><div class="card"><h2 style="margin-bottom:14px">📅 Ajouter une éval prévue</h2>
+<div class="r2"><select id="pSubject">${subOpts()}</select><input type="text" id="pTitle" placeholder="Titre (ex : DS n°4)"></div>
+<input type="date" id="pDate"><input type="text" id="pTopic" placeholder="Chapitres au programme (ex : dérivées, Le Horla...)">
+<button class="btn" onclick="pAdd()">➕ Ajouter</button></div>
+<h2 style="margin:20px 0 12px">🗓️ À venir</h2><div id="pList"></div></div>
+<div id="view-mock" class="view"><div id="mBody"></div></div>`);
+$('pDate').value=new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+const X=[['friends','👥 Entre potes'],['planned','📅 Évals prévues'],['mock','🧪 Éval blanche']],pr=window.renderTabs,ps=window.showView;
+window.renderTabs=()=>{pr();const nav=$('tabs');if(!nav)return;if(X.some(a=>a[0]===xm))nav.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  nav.insertAdjacentHTML('afterbegin',X.map(([id,l])=>`<div class="tab ${xm===id?'active':''}" onclick="showView('${id}')">${l}</div>`).join(''))};
+window.showView=n=>{xm=n;ps(n);if(n==='friends')renderFriends();if(n==='planned')renderPlanned();if(n==='mock'&&!(mock&&mock.items))renderMock()};
+renderTabs();
+})();
+</script>
+
 </body>
 </html>
