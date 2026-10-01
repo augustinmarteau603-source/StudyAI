@@ -271,14 +271,20 @@ function extractJSON(txt){
 }
 
 async function callAI(messages, useVision){
-  const opts = {};
-  if (useVision) opts.model = 'google/gemini-2.0-flash'; // modèle vision
-  try {
-    const resp = await puter.ai.chat(messages, opts);
-    return extractJSON(resp?.message?.content ?? resp?.toString?.() ?? resp);
-  } catch(e) {
-    throw new Error(e.message || 'Erreur API');
+  // Modèles essayés dans l'ordre ; on passe au suivant si "Model not found". Le dernier (défaut Puter) sert de filet.
+  const models = useVision ? ['gpt-4o','gpt-4.1-mini','google/gemini-2.5-flash','claude-sonnet-4-5',null] : [null];
+  let lastErr;
+  for (const m of models) {
+    try {
+      const resp = m ? await puter.ai.chat(messages, { model: m }) : await puter.ai.chat(messages);
+      return extractJSON(resp?.message?.content?.[0]?.text ?? resp?.message?.content ?? resp?.toString?.() ?? resp);
+    } catch(e) {
+      lastErr = e;
+      const msg = String(e?.message || e?.error?.message || JSON.stringify(e) || '');
+      if (!/not found|unknown model|invalid model|unsupported/i.test(msg)) throw new Error(msg || 'Erreur API');
+    }
   }
+  throw new Error(String(lastErr?.message || 'Aucun modèle vision disponible'));
 }
 
 // ---------- GENERATION COURS ----------
