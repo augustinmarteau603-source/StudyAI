@@ -145,7 +145,7 @@ button.mini{padding:4px 8px;font-size:.8rem}
 </main>
 
 <div class="toast" id="toast"></div>
-<div class="api-badge">Powered by Puter.js — GPT / Claude / Gemini</div>
+<div class="api-badge">Puter.js · v3</div>
 
 <script>
 const SUBJECTS = [
@@ -270,21 +270,35 @@ function extractJSON(txt){
   return JSON.parse(txt.slice(start, end+1));
 }
 
+let _visModels=null;
+async function visionModels(){
+  if(_visModels) return _visModels;
+  let ids=[];
+  try{
+    const l=await puter.ai.listModels();
+    ids=(Array.isArray(l)?l:[]).map(m=>typeof m==='string'?m:(m.id||m.name)).filter(Boolean);
+  }catch(e){}
+  const prefs=[/^gpt-4o$/,/^gpt-4\.1(-mini)?$/,/^gpt-5(-mini|-nano)?$/,/gemini-(2\.5|3)[^/]*flash/,/^claude-(sonnet|haiku)/,/gpt-4o/,/claude/,/gemini/];
+  const picked=[];
+  prefs.forEach(p=>ids.filter(i=>p.test(i)&&!picked.includes(i)).slice(0,2).forEach(i=>picked.push(i)));
+  _visModels=[...picked.slice(0,6),'gpt-4o','gpt-4.1-mini',null];
+  return _visModels;
+}
 async function callAI(messages, useVision){
-  // Modèles essayés dans l'ordre ; on passe au suivant si "Model not found". Le dernier (défaut Puter) sert de filet.
-  const models = useVision ? ['gpt-4o','gpt-4.1-mini','google/gemini-2.5-flash','claude-sonnet-4-5',null] : [null];
-  let lastErr;
+  const models = useVision ? await visionModels() : [null];
+  let lastErr, tried=[];
   for (const m of models) {
     try {
+      tried.push(m||'défaut');
       const resp = m ? await puter.ai.chat(messages, { model: m }) : await puter.ai.chat(messages);
       return extractJSON(resp?.message?.content?.[0]?.text ?? resp?.message?.content ?? resp?.toString?.() ?? resp);
     } catch(e) {
       lastErr = e;
       const msg = String(e?.message || e?.error?.message || JSON.stringify(e) || '');
-      if (!/not found|unknown model|invalid model|unsupported/i.test(msg)) throw new Error(msg || 'Erreur API');
+      if (!/not found|unknown model|invalid model|unsupported|not support/i.test(msg)) throw new Error(msg || 'Erreur API');
     }
   }
-  throw new Error(String(lastErr?.message || 'Aucun modèle vision disponible'));
+  throw new Error('Aucun modèle vision dispo (essayés : '+tried.join(', ')+') — '+String(lastErr?.message||lastErr?.error?.message||''));
 }
 
 // ---------- GENERATION COURS ----------
