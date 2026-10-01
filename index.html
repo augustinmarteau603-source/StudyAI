@@ -1377,5 +1377,71 @@ renderTabs();
 })();
 </script>
 
+<style>
+#cqLog{max-height:420px;overflow-y:auto;margin-bottom:12px}
+.cqm{padding:10px 14px;border-radius:12px;margin:8px 0;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.cqm.u{background:#1d4ed8;color:#fff;margin-left:15%;border-bottom-right-radius:4px}
+.cqm.a{background:#16203a;border:1px solid #334155;margin-right:8%;border-bottom-left-radius:4px}
+.cqChips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.cqChips button{background:#16203a;border:1px solid #334155;color:#cbd5e1;border-radius:999px;padding:6px 12px;font-size:.85rem;cursor:pointer}
+.cqChips button:hover{border-color:#3b82f6}
+.cqRow{display:flex;gap:8px;align-items:flex-end}
+.cqRow textarea{margin:0;flex:1;resize:none}
+</style>
+<script>
+/* ===== QUESTIONS SUR UN COURS ===== */
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+let busy=false;
+const course=()=>{try{return courses[currentCourse.subjectId][currentCourse.index]}catch{return null}};
+const card=document.createElement('div');
+card.className='card';card.id='cqCard';
+card.innerHTML=`<h3 style="margin-bottom:6px">💬 Une question sur ce cours ?</h3>
+<p style="color:#94a3b8;margin-bottom:10px;font-size:.92rem">Pose tes questions ici, pas besoin de regénérer le cours.</p>
+<div id="cqLog"></div>
+<div class="cqChips"><button onclick="cqAsk(this.textContent)">Explique plus simplement</button><button onclick="cqAsk(this.textContent)">Donne-moi un exemple</button><button onclick="cqAsk(this.textContent)">Fais-moi un résumé</button><button onclick="cqAsk(this.textContent)">Pose-moi une question pour tester</button></div>
+<div class="cqRow"><textarea id="cqIn" rows="2" placeholder="Écris ta question..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();cqAsk()}"></textarea><button class="btn" id="cqBtn" onclick="cqAsk()">Envoyer</button></div>
+<button class="btn btn-secondary mini" id="cqClr" style="margin-top:10px" onclick="cqClear()">🗑️ Effacer la conversation</button>`;
+$('courseContent').closest('.card').insertAdjacentElement('afterend',card);
+
+function render(){
+  const c=course();if(!c)return;
+  const h=c.chat||[];
+  $('cqLog').innerHTML=h.map(m=>`<div class="cqm ${m.r==='u'?'u':'a'}">${fmt(m.t)}</div>`).join('');
+  $('cqClr').style.display=h.length?'inline-block':'none';
+  $('cqLog').scrollTop=1e9;
+}
+window.cqClear=()=>{const c=course();if(!c||!confirm('Effacer la conversation de ce cours ?'))return;c.chat=[];save('studyai_courses',courses);render()};
+window.cqAsk=async q=>{
+  const c=course();if(!c||busy)return;
+  q=String(q??$('cqIn').value).trim();if(!q)return;
+  busy=true;$('cqIn').value='';$('cqBtn').disabled=true;
+  c.chat=c.chat||[];c.chat.push({r:'u',t:q});render();
+  const log=$('cqLog'),wait=document.createElement('div');
+  wait.className='cqm a';wait.innerHTML='<span class="dPulse">⏳</span> Je réfléchis...';log.appendChild(wait);log.scrollTop=1e9;
+  try{
+    const ctx=c.title+'\n\n'+c.sections.map(s=>s.heading+' :\n'+s.content).join('\n\n');
+    const hist=c.chat.slice(-11,-1).map(m=>({role:m.r==='u'?'user':'assistant',content:m.t}));
+    const msgs=[{role:'system',content:`Tu es un professeur patient et pédagogue qui répond aux questions d'un élève sur son cours. Réponds en français, de façon claire et courte (quelques phrases, un exemple si utile), sans titres ni listes à rallonge. Appuie-toi sur le cours ci-dessous, et si la question va au-delà, réponds avec tes connaissances en le précisant. Si l'élève demande qu'on le teste, pose une seule question et attends sa réponse.\n\nCOURS :\n${ctx.slice(0,7000)}`},...hist,{role:'user',content:q}];
+    const resp=await puter.ai.chat(msgs);
+    let t=resp?.message?.content?.[0]?.text??resp?.message?.content??resp?.toString?.()??'';
+    t=String(t).trim();if(!t)throw new Error('Réponse vide');
+    c.chat.push({r:'a',t});
+  }catch(e){
+    c.chat.pop();
+    toast('❌ '+(e?.message||e?.error?.message||'Erreur')+' — réessaie',true);
+    $('cqIn').value=q;
+  }
+  c.chat=c.chat.slice(-40);
+  save('studyai_courses',courses);
+  busy=false;$('cqBtn').disabled=false;render();
+};
+const _oc=window.openCourse;
+window.openCourse=function(i){_oc(i);render()};
+})();
+</script>
+
 </body>
 </html>
