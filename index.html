@@ -145,7 +145,7 @@ button.mini{padding:4px 8px;font-size:.8rem}
 </main>
 
 <div class="toast" id="toast"></div>
-<div class="api-badge">Puter.js · v3</div>
+<div class="api-badge">Puter.js · v4</div>
 
 <script>
 const SUBJECTS = [
@@ -284,7 +284,31 @@ async function visionModels(){
   _visModels=[...picked.slice(0,6),'gpt-4o','gpt-4.1-mini',null];
   return _visModels;
 }
+// OCR Puter (img2txt) : lit le texte des photos, puis un modèle texte (fiable) génère le cours/l'analyse
+async function ocr(url){
+  for (const src of [async()=>await (await fetch(url)).blob(), async()=>url]) {
+    try {
+      const r = await puter.ai.img2txt(await src());
+      const t = typeof r==='string' ? r : (r?.text || r?.message?.content || '');
+      if (String(t).trim().length > 10) return String(t).trim();
+    } catch(e) {}
+  }
+  return '';
+}
+async function toTextMsgs(messages){
+  let found = 0; const out = [];
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) { out.push(m); continue; }
+    let txt = '', imgs = [];
+    m.content.forEach(c => c.type==='text' ? txt += c.text : imgs.push(c.image_url.url));
+    const parts = [];
+    for (let i=0;i<imgs.length;i++){ const t = await ocr(imgs[i]); if(t){ found++; parts.push(`--- Photo ${i+1} (texte extrait par OCR) ---\n${t}`); } }
+    out.push({ role:m.role, content: txt + '\n\n' + parts.join('\n\n') });
+  }
+  return found ? out : null;
+}
 async function callAI(messages, useVision){
+  if (useVision) { const tm = await toTextMsgs(messages); if (tm) { messages = tm; useVision = false; } }
   const models = useVision ? await visionModels() : [null];
   let lastErr, tried=[];
   for (const m of models) {
