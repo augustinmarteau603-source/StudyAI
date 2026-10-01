@@ -857,5 +857,525 @@ renderTabs();
 })();
 </script>
 
+<style>
+.dCtl{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.dGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:560px){.dGrid{grid-template-columns:1fr}}
+#dTa,#dOwn{font-size:1.05rem;line-height:1.7;resize:vertical}
+#dTa{min-height:280px}
+.dTxt{line-height:2.1;font-size:1.05rem;color:#e2e8f0}
+.dE{background:#7f1d1d55;border-radius:6px;padding:0 4px}
+.dE s{color:#fca5a5;margin-right:5px}
+.dE b{color:#86efac}
+.dM{background:#14532d66;color:#86efac;border-radius:6px;padding:0 4px;font-weight:bold;border-bottom:2px dashed #22c55e}
+.dX s{color:#fca5a5;background:#7f1d1d55;padding:0 4px;border-radius:6px}
+.dRow{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin:8px 0;padding:10px 12px;background:#16203a;border-radius:10px;line-height:1.5}
+.dRow .rule{flex:1 1 100%;color:#94a3b8;font-size:.92rem}
+.dPulse{display:inline-block;animation:dp 1s infinite}
+@keyframes dp{50%{opacity:.3}}
+.chk{display:flex;gap:8px;align-items:center;color:#cbd5e1;margin:8px 0;cursor:pointer}
+.chk input{width:auto;margin:0}
+.dHint{color:#64748b;font-size:.88rem;margin:-4px 0 12px;line-height:1.5}
+</style>
+<script>
+/* ===== MODULE DICTÉE (dans la section évals) ===== */
+(()=>{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ld=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{toast('⚠️ Stockage plein',true)}};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const fr=v=>String(Math.round(v*10)/10).replace('.',',');
+const busyB=async(b,l,fn)=>{const o=b.innerHTML;b.disabled=true;b.innerHTML=l;try{await fn()}catch(e){toast('❌ '+(e.message||'Erreur')+' — réessaie',true)}b.disabled=false;b.innerHTML=o};
+
+let hist=ld('studyai_dictees',[]);
+let D={run:0,paused:false,skip:false,repeat:false,cur:null,text:'',title:'',source:'',chunks:[],i:0,last:0,cache:new Map(),fell:false,done:false,mode:'',opt:{},res:null};
+let dm='';
+
+/* ---------- Découpage du texte ---------- */
+const TOK=/\n+|[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*['’]?|[^\s\p{L}\p{N}]/gu;
+const prep=s=>String(s).replace(/\r/g,'').replace(/\u00a0/g,' ').replace(/\.{3}/g,'…').replace(/[’‘]/g,"'");
+const tokenize=s=>(prep(s).match(TOK)||[]);
+const isWord=t=>/[\p{L}\p{N}]/u.test(t);
+const PW={',':'virgule','.':'point',';':'point-virgule',':':'deux-points','?':"point d'interrogation",'!':"point d'exclamation",'…':'points de suspension','«':'ouvrez les guillemets','»':'fermez les guillemets','(':'ouvrez la parenthèse',')':'fermez la parenthèse','—':'tiret','–':'tiret','-':'tiret'};
+
+function joinDisp(arr){
+  let s='',prev='';
+  for(const t of arr){
+    if(!s){s=t;prev=t;continue}
+    const nsp=/^[,.;:?!…»)"”]$/.test(t)&&!(t==='"'&&/^[«(]$/.test(prev))||prev.endsWith("'")||/^[«(“]$/.test(prev);
+    s+=(nsp?'':' ')+t;prev=t;
+  }
+  return s;
+}
+function chunkify(text){
+  const toks=tokenize(text),out=[];let cur=[],w=0;
+  const push=()=>{if(cur.length){out.push(cur);cur=[];w=0}};
+  for(let k=0;k<toks.length;k++){
+    const t=toks[k];
+    if(t[0]==='\n'){
+      if(cur.length){cur.push('\n');push()}
+      else if(out.length&&out[out.length-1].slice(-1)[0]!=='\n')out[out.length-1].push('\n');
+      continue;
+    }
+    if(!cur.length&&out.length&&/^[»)”]$/.test(t)){out[out.length-1].push(t);continue}
+    cur.push(t);
+    if(isWord(t)){
+      w++;
+      const nx=toks[k+1];
+      if(w>=8&&nx&&isWord(nx)&&!t.endsWith("'"))push();
+    }else if(/^[.?!…;:]$/.test(t))push();
+    else if(t===','&&w>=3)push();
+  }
+  push();
+  return out;
+}
+function spoken(chunk,withP,st){
+  let s='';
+  for(const t of chunk){
+    if(t==='\n'){if(withP)s+=' à la ligne';continue}
+    if(isWord(t)){s+=(s&&!s.endsWith("'")?' ':'')+t;continue}
+    let p=t;
+    if(t==='"'){p=st.q?'»':'«';st.q=!st.q}
+    if(t==='“')p='«';
+    if(t==='”')p='»';
+    if(withP)s+=' '+(PW[p]||'');
+    else if(/^[,.;:?!…]$/.test(p))s+=p;
+  }
+  return s.trim();
+}
+function fullChunks(text){
+  const t=String(text).replace(/\s+/g,' ').trim();
+  const sentences=t.match(/[^.!?…]+[.!?…]*\s*/g)||[t];
+  const out=[];let cur='';
+  for(const s of sentences){
+    if(cur&&(cur+s).length>280){out.push(cur.trim());cur=''}
+    cur+=s;
+  }
+  if(cur.trim())out.push(cur.trim());
+  return out;
+}
+
+/* ---------- Voix ---------- */
+async function getAudio(text){
+  const key=D.opt.voice+'|'+text;
+  if(D.cache.has(key))return D.cache.get(key);
+  const to=()=>sleep(20000).then(()=>{throw new Error('timeout')});
+  const p=(async()=>{
+    const v=D.opt.voice.split(':')[1]||'Lea';
+    try{return await Promise.race([puter.ai.txt2speech(text,{language:'fr-FR',engine:'neural',voice:v}),to()])}
+    catch(e){return await Promise.race([puter.ai.txt2speech(text,'fr-FR'),to()])}
+  })();
+  D.cache.set(key,p);
+  p.catch(()=>D.cache.delete(key));
+  return p;
+}
+function prefetch(text){if(text&&D.opt.voice.startsWith('p:')&&!D.fell)getAudio(text).catch(()=>{})}
+async function speakPuter(text,tok){
+  const a=await getAudio(text);
+  if(tok!==D.run||D.skip||D.repeat)return 'stop';
+  return new Promise(res=>{
+    let done=false;
+    const fin=r=>{if(done)return;done=true;D.cur=null;res(r)};
+    a.onended=()=>fin('end');a.onerror=()=>fin('err');
+    try{a.currentTime=0}catch{}
+    a.playbackRate=D.opt.rate;
+    D.cur={pause:()=>a.pause(),resume:()=>a.play().catch(()=>{}),stop:()=>{a.pause();fin('stop')}};
+    a.play().catch(()=>fin('blocked'));
+  });
+}
+function speakBrowser(text){
+  return new Promise(res=>{
+    const ss=window.speechSynthesis;
+    if(!ss){toast('❌ Aucune voix disponible sur ce navigateur',true);return res('none')}
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='fr-FR';u.rate=D.opt.rate;
+    const vs=ss.getVoices().filter(v=>/^fr/i.test(v.lang)),want=D.opt.voice.startsWith('b:')?D.opt.voice.slice(2):'';
+    const vo=vs.find(v=>v.name===want)||vs.find(v=>v.lang==='fr-FR')||vs[0];
+    if(vo)u.voice=vo;
+    let done=false;
+    const fin=r=>{if(done)return;done=true;clearTimeout(to);D.cur=null;res(r)};
+    const to=setTimeout(()=>fin('timeout'),Math.max(6000,text.length*200/D.opt.rate+3000));
+    u.onend=()=>fin('end');u.onerror=()=>fin('err');
+    D.cur={pause:()=>ss.pause(),resume:()=>ss.resume(),stop:()=>{ss.cancel();fin('stop')}};
+    ss.speak(u);
+  });
+}
+async function speak(text,tok){
+  if(!text)return;
+  if(D.opt.voice.startsWith('p:')&&!D.fell){
+    try{
+      const r=await speakPuter(text,tok);
+      if(tok!==D.run)return;
+      if(r==='end'||r==='stop')return;
+      throw new Error(r);
+    }catch(e){
+      if(tok!==D.run)return;
+      D.fell=true;toast('🔊 Voix IA indisponible → voix du navigateur',true);
+    }
+  }
+  if(tok!==D.run)return;
+  await speakBrowser(text);
+}
+function stopAll(){
+  D.run++;D.paused=false;D.skip=false;D.repeat=false;
+  try{D.cur&&D.cur.stop()}catch{}
+  try{window.speechSynthesis&&speechSynthesis.cancel()}catch{}
+  D.cur=null;
+}
+
+/* ---------- Déroulé de la dictée ---------- */
+const stat=t=>{const e=$('dStat');if(e)e.innerHTML=t};
+const prog=()=>{const e=$('dBar');if(e)e.style.width=(D.i/Math.max(1,D.chunks.length)*100)+'%'};
+const ta=()=>$('dTa');
+function setPauseBtn(){const b=$('dPause');if(b)b.innerHTML=D.paused?'▶️ Reprendre':'⏸️ Pause'}
+async function runDictee(){
+  const tok=++D.run,o=D.opt,alive=()=>tok===D.run,n=D.chunks.length;
+  D.done=false;D.paused=false;D.skip=false;D.repeat=false;D.i=0;setPauseBtn();
+  const st={q:false},sp=D.chunks.map(c=>spoken(c,o.punct,st));
+  const exp=[];let acc=0;
+  D.chunks.forEach(c=>{acc+=joinDisp(c.filter(t=>t!=='\n')).length+1;exp.push(acc)});
+  const wait=async(ms,cond)=>{
+    let t=0;
+    while(alive()){
+      if(D.skip||D.repeat)return;
+      if(!D.paused){
+        if(ms!==null&&t>=ms)return;
+        if(cond&&cond(t))return;
+        t+=100;
+      }
+      await sleep(100);
+    }
+  };
+  const readAll=async()=>{
+    const fc=fullChunks(D.text);
+    for(let k=0;k<fc.length;k++){
+      if(!alive())return;
+      if(fc[k+1])prefetch(fc[k+1]);
+      await speak(fc[k],tok);
+      if(D.skip){D.skip=false;break}
+      D.repeat=false;
+    }
+  };
+  if(o.first){
+    stat('🎧 <span class="dPulse">🔊</span> Écoute d\'abord le texte en entier…');
+    await readAll();if(!alive())return;
+    stat('Prépare-toi…');await wait(1500);D.skip=false;D.repeat=false;
+  }
+  let i=0;
+  while(i<n&&alive()){
+    D.i=i;prog();
+    if(sp[i+1])prefetch(sp[i+1]);
+    const reps=o.twice?2:1;
+    for(let r=0;r<reps&&alive();r++){
+      stat(`<span class="dPulse">🔊</span> Groupe ${i+1}/${n}`);
+      await speak(sp[i],tok);
+      if(!alive())return;
+      if(D.skip||D.repeat)break;
+      if(r<reps-1)await wait(700);
+    }
+    if(!alive())return;
+    if(D.repeat){D.repeat=false;D.skip=false;continue}
+    if(D.skip){D.skip=false;i++;continue}
+    stat(`✍️ À toi d'écrire… (${i+1}/${n})`);
+    const words=D.chunks[i].filter(isWord).length;
+    if(o.pace==='manuel')await wait(null);
+    else if(o.pace==='adaptatif')await wait(Math.max(5000,words*2800),t=>t>=800&&ta()&&ta().value.length>=exp[i]*0.8&&Date.now()-D.last>=1100);
+    else await wait(900+words*(o.pace==='lent'?900:o.pace==='rapide'?250:500));
+    if(!alive())return;
+    if(D.repeat){D.repeat=false;D.skip=false;continue}
+    D.skip=false;i++;
+  }
+  if(!alive())return;
+  D.i=n;prog();
+  if(o.final){
+    stat('🎧 <span class="dPulse">🔊</span> Relecture finale…');
+    await wait(1500);
+    await speak('Je relis le texte en entier.',tok);
+    await wait(500);D.skip=false;D.repeat=false;
+    await readAll();if(!alive())return;
+  }
+  D.done=true;
+  stat('✅ Dictée terminée — relis-toi tranquillement puis rends ta copie');
+  const b=$('dSubmit');if(b)b.style.boxShadow='0 0 0 3px #22c55e88';
+}
+
+/* ---------- Boutons de contrôle ---------- */
+window.dPauseToggle=()=>{
+  D.paused=!D.paused;
+  try{D.cur&&(D.paused?D.cur.pause():D.cur.resume())}catch{}
+  setPauseBtn();
+};
+window.dRepeat=()=>{D.paused=false;setPauseBtn();D.repeat=true;try{D.cur&&D.cur.stop()}catch{}};
+window.dNext=()=>{D.paused=false;setPauseBtn();D.skip=true;try{D.cur&&D.cur.stop()}catch{}};
+window.dRate=v=>{D.opt.rate=+v;const e=$('dRateV');if(e)e.textContent='×'+v};
+window.dTyped=()=>{D.last=Date.now();const e=$('dCount');if(e)e.textContent=(ta().value.trim().match(/\S+/g)||[]).length+' mots écrits'};
+window.dQuit=()=>{if(!confirm('Abandonner cette dictée ?'))return;stopAll();renderSetup()};
+
+/* ---------- Écran de réglages ---------- */
+const subOpts=()=>SUBJECTS.map(s=>`<option value="${s.id}">${s.icon} ${s.name}</option>`).join('');
+function voiceOpts(){
+  const vs=(window.speechSynthesis?speechSynthesis.getVoices():[]).filter(v=>/^fr/i.test(v.lang));
+  return '<option value="p:Lea">🤖 Voix IA — Léa (femme)</option><option value="p:Remi">🤖 Voix IA — Rémi (homme)</option>'
+    +vs.map(v=>`<option value="b:${esc(v.name)}">🔊 ${esc(v.name)}</option>`).join('')
+    +(vs.length?'':'<option value="b:">🔊 Voix du navigateur</option>');
+}
+const defOpt={voice:'p:Lea',pace:'adaptatif',rate:0.9,punct:true,first:true,final:true,twice:false,src:'ia',lvl:'collège 6e-5e',len:'80'};
+const getOpt=()=>({...defOpt,...ld('studyai_dictee_opt',{})});
+function renderSetup(){
+  D.mode='setup';
+  const o=getOpt();
+  $('dBody').innerHTML=`<div class="card"><h2 style="margin-bottom:6px">✍️ Dictée</h2>
+<p style="color:#94a3b8;margin-bottom:14px;line-height:1.5">Une voix te dicte un texte groupe par groupe pendant que tu écris, comme en vrai. À la fin tu rends ta copie et elle est corrigée mot par mot.</p>
+<select id="dSrc" onchange="dSrcChange()">
+<option value="ia">📚 Texte d'auteur choisi par l'IA</option>
+<option value="cours">🎓 Texte tiré d'un de mes cours</option>
+<option value="perso">✍️ Mon propre texte</option></select>
+<div id="dP-ia"><div class="dGrid"><select id="dLvl">${['primaire CE2-CM2','collège 6e-5e','collège 4e-3e','lycée','adulte (difficile)'].map(l=>`<option value="${l}">${l[0].toUpperCase()+l.slice(1)}</option>`).join('')}</select>
+<select id="dLen"><option value="40">Court (~40 mots)</option><option value="80">Moyen (~80 mots)</option><option value="140">Long (~140 mots)</option></select></div>
+<input type="text" id="dTheme" placeholder="Thème (facultatif : la mer, un orage, Paris...)"></div>
+<div id="dP-cours" style="display:none"><div class="dGrid"><select id="dSubj" onchange="dFill()">${subOpts()}</select><select id="dCourse"></select></div></div>
+<div id="dP-perso" style="display:none"><textarea id="dOwn" rows="6" placeholder="Colle ici ton texte (2500 caractères max)..."></textarea></div>
+</div>
+<div class="card"><h3 style="margin-bottom:12px">⚙️ Réglages de la dictée</h3>
+<div class="dGrid"><select id="dVoice">${voiceOpts()}</select>
+<select id="dPace"><option value="adaptatif">⏱️ Rythme adaptatif (elle t'attend)</option><option value="lent">🐢 Lent</option><option value="normal">🚶 Normal</option><option value="rapide">🐇 Rapide</option><option value="manuel">👆 Manuel (bouton « Suivant »)</option></select></div>
+<p class="dHint">Adaptatif : la voix attend que tu aies fini d'écrire le groupe avant de continuer.</p>
+<label style="display:block;color:#94a3b8;margin-bottom:10px">Vitesse de la voix : <b id="dRateV" style="color:#fbbf24">×${o.rate}</b><input type="range" id="dRateR" min="0.6" max="1.2" step="0.05" value="${o.rate}" oninput="dRate(this.value)" style="width:100%"></label>
+<label class="chk"><input type="checkbox" id="dPunct"> Dire la ponctuation (« virgule », « point »...)</label>
+<label class="chk"><input type="checkbox" id="dFirst"> Lire d'abord le texte en entier</label>
+<label class="chk"><input type="checkbox" id="dFinal"> Relecture complète à la fin</label>
+<label class="chk"><input type="checkbox" id="dTwice"> Dire chaque groupe deux fois</label>
+<button class="btn" id="dGo" style="margin-top:8px" onclick="dStart()">▶️ Commencer la dictée</button></div>
+${hist.length?`<h3 style="margin:16px 0 10px">🕘 Mes dernières dictées</h3>`+hist.slice(0,8).map((h,i)=>{const c=h.note>=14?'#22c55e':h.note>=10?'#f59e0b':'#ef4444';return `<div class="course-item" style="cursor:default"><div><h3>${esc(h.title)}</h3><small>${esc(h.date)} · ${h.errs} faute${h.errs>1?'s':''}</small></div><div><span class="badge" style="color:${c}">${fr(h.note)}/20</span>${h.text?` <button class="btn mini" title="Refaire" onclick="dRedo(${i})">🔁</button>`:''}</div></div>`}).join(''):''}`;
+  $('dSrc').value=o.src;$('dLvl').value=o.lvl;$('dLen').value=o.len;$('dVoice').value=o.voice;if($('dVoice').value!==o.voice)$('dVoice').selectedIndex=0;
+  $('dPace').value=o.pace;$('dPunct').checked=o.punct;$('dFirst').checked=o.first;$('dFinal').checked=o.final;$('dTwice').checked=o.twice;
+  D.opt={...D.opt,rate:o.rate};
+  dFill();dSrcChange();
+  if(window.speechSynthesis&&!speechSynthesis.getVoices().length)speechSynthesis.onvoiceschanged=()=>{if(D.mode==='setup'&&$('dVoice')){const cur=$('dVoice').value;$('dVoice').innerHTML=voiceOpts();$('dVoice').value=cur}};
+}
+window.dSrcChange=()=>{const s=$('dSrc').value;['ia','cours','perso'].forEach(k=>$('dP-'+k).style.display=k===s?'block':'none')};
+window.dFill=()=>{const cs=courses[$('dSubj').value]||[];$('dCourse').innerHTML=cs.length?'<option value="r">🎲 Un cours au hasard</option>'+cs.map((c,i)=>`<option value="${i}">${esc(c.title)}</option>`).join(''):'<option value="">(aucun cours dans cette matière)</option>'};
+
+/* ---------- Récupération du texte ---------- */
+const clean=s=>String(s||'').replace(/[*#_`>]+/g,'').replace(/\r/g,'').replace(/[ \t]+/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+function cutWords(t,n){
+  const w=t.split(/\s+/);if(w.length<=n)return t;
+  let s=w.slice(0,n).join(' ');const m=s.match(/^[\s\S]*[.!?…]/);
+  return m&&m[0].length>s.length*0.5?m[0]:s;
+}
+async function getText(o){
+  if(o.src==='ia'){
+    const r=await callAI([
+      {role:'system',content:'Tu es un professeur de français qui prépare des dictées. Réponds UNIQUEMENT en JSON valide.'},
+      {role:'user',content:`Choisis une dictée pour un élève de niveau : ${o.lvl}. Prends un extrait connu de la littérature française du domaine public (auteur mort depuis plus de 70 ans) si tu t'en souviens fidèlement, sinon écris un texte original dans le style d'un grand auteur. Longueur : environ ${o.len} mots. ${o.theme?'Thème : '+o.theme+'.':'Choisis un thème varié.'} Le texte doit être propre : pas de titre dans le texte, une ponctuation simple (virgules, points), et contenir quelques pièges d'orthographe adaptés au niveau (accords, homophones, participes passés). Réponds UNIQUEMENT avec ce JSON : {"title":"titre court","source":"auteur et œuvre, ou Texte original","text":"le texte de la dictée"}`}
+    ],false);
+    const t=clean(r.text);if(t.length<20)throw new Error('Texte invalide');
+    return{title:String(r.title||'Dictée').slice(0,60),source:String(r.source||''),text:t.slice(0,2500)};
+  }
+  if(o.src==='cours'){
+    const cs=courses[o.subj]||[];if(!cs.length)throw new Error('Aucun cours dans cette matière');
+    const c=o.course==='r'||o.course===''?cs[Math.floor(Math.random()*cs.length)]:cs[+o.course];
+    const secs=(c.sections||[]).filter(s=>s.content&&s.content.length>60);
+    if(!secs.length)throw new Error('Ce cours est trop court pour une dictée');
+    const s=secs[Math.floor(Math.random()*secs.length)];
+    return{title:c.title,source:'Cours : '+c.title,text:cutWords(clean(s.content),+o.len||80).slice(0,2500)};
+  }
+  const t=clean(o.own);
+  if((t.match(/\S+/g)||[]).length<8)throw new Error('Ton texte est trop court (8 mots minimum)');
+  if(t.length>2500)toast('✂️ Texte coupé à 2500 caractères');
+  return{title:'Mon texte',source:'Texte personnel',text:t.slice(0,2500)};
+}
+
+/* ---------- Lancement ---------- */
+window.dStart=()=>{
+  try{window.speechSynthesis&&speechSynthesis.speak(new SpeechSynthesisUtterance(''))}catch{}
+  const o={
+    src:$('dSrc').value,lvl:$('dLvl').value,len:$('dLen').value,theme:$('dTheme').value.trim(),
+    subj:$('dSubj').value,course:$('dCourse').value,own:$('dOwn').value,
+    voice:$('dVoice').value,pace:$('dPace').value,rate:+$('dRateR').value,
+    punct:$('dPunct').checked,first:$('dFirst').checked,final:$('dFinal').checked,twice:$('dTwice').checked
+  };
+  const{theme,subj,course,own,...keep}=o;sv('studyai_dictee_opt',keep);
+  return busyB($('dGo'),'⏳ Préparation du texte...',async()=>{
+    const t=await getText(o);
+    D.text=t.text;D.title=t.title;D.source=t.source;D.opt={...o};D.fell=false;
+    begin();
+  });
+};
+window.dRedo=i=>{
+  const h=hist[i];if(!h||!h.text)return;
+  const o={...getOpt()};
+  D.text=h.text;D.title=h.title;D.source=h.source||'';D.opt=o;D.fell=false;
+  try{window.speechSynthesis&&speechSynthesis.speak(new SpeechSynthesisUtterance(''))}catch{}
+  begin();
+};
+function begin(){
+  stopAll();
+  D.chunks=chunkify(D.text);D.i=0;D.mode='play';
+  $('dBody').innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>✍️ ${esc(D.title)}</h2><button class="btn btn-secondary mini" onclick="dQuit()">✕ Abandonner</button></div>
+<p class="q-num" id="dStat" style="margin-top:10px"></p><div class="progress-bar"><div class="progress-fill" id="dBar" style="width:0%"></div></div>
+<div class="dCtl"><button class="btn mini" id="dPause" onclick="dPauseToggle()">⏸️ Pause</button><button class="btn mini btn-secondary" onclick="dRepeat()">🔁 Répéter</button><button class="btn mini btn-secondary" onclick="dNext()">⏭️ Groupe suivant</button></div>
+<label style="display:block;color:#94a3b8;font-size:.9rem">Vitesse de la voix : <b id="dRateV" style="color:#fbbf24">×${D.opt.rate}</b><input type="range" min="0.6" max="1.2" step="0.05" value="${D.opt.rate}" oninput="dRate(this.value)" style="width:100%"></label></div>
+<div class="card"><textarea id="dTa" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm="false" placeholder="Écris ici ce que tu entends..." oninput="dTyped()"></textarea>
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><span id="dCount" style="color:#64748b">0 mots écrits</span><button class="btn" id="dSubmit" onclick="dSubmit()">📨 Rendre ma copie</button></div></div>`;
+  window.scrollTo(0,0);
+  D.last=Date.now();
+  setTimeout(()=>{try{ta().focus()}catch{}},50);
+  runDictee();
+}
+
+/* ---------- Correction ---------- */
+const stp=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function lev(a,b){
+  const m=a.length,n=b.length;if(!m)return n;if(!n)return m;
+  let p=Array.from({length:n+1},(_,j)=>j);
+  for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}
+  return p[n];
+}
+function classify(a,b){
+  if(a.toLowerCase()===b.toLowerCase())return{k:'sub',a,b,type:'majuscule / minuscule',w:.5};
+  if(stp(a)===stp(b))return{k:'sub',a,b,type:'accent',w:.5};
+  const x=stp(a),y=stp(b);let cp=0;
+  while(cp<x.length&&cp<y.length&&x[cp]===y[cp])cp++;
+  let type;
+  if(cp>=2&&cp>=Math.min(x.length,y.length)-1&&Math.abs(x.length-y.length)<=3)type='accord / terminaison';
+  else if(lev(x,y)<=2&&Math.max(x.length,y.length)>=4)type='orthographe';
+  else type='mot différent';
+  return{k:'sub',a,b,type,w:1};
+}
+function align(x,y){
+  const n=x.length,m=y.length,G=.7,c=Array.from({length:n+1},()=>new Float32Array(m+1));
+  const sc=(i,j)=>{const a=stp(x[i]),b=stp(y[j]);return a===b?0:Math.min(1,lev(a,b)/Math.max(a.length,b.length))};
+  for(let i=1;i<=n;i++)c[i][0]=i*G;
+  for(let j=1;j<=m;j++)c[0][j]=j*G;
+  for(let i=1;i<=n;i++)for(let j=1;j<=m;j++)c[i][j]=Math.min(c[i-1][j-1]+sc(i-1,j-1),c[i-1][j]+G,c[i][j-1]+G);
+  const out=[];let i=n,j=m;
+  while(i>0||j>0){
+    if(i>0&&j>0&&Math.abs(c[i][j]-(c[i-1][j-1]+sc(i-1,j-1)))<1e-6){out.push([i-1,j-1]);i--;j--}
+    else if(i>0&&Math.abs(c[i][j]-(c[i-1][j]+G))<1e-6){out.push([i-1,null]);i--}
+    else{out.push([null,j-1]);j--}
+  }
+  return out.reverse();
+}
+function resolveBlock(Dl,Il,res){
+  const flat=s=>s.join('').toLowerCase().replace(/\s/g,'');
+  if(Dl.length&&Il.length&&(Dl.length>1||Il.length>1)&&flat(Dl)===flat(Il)){
+    res.push({k:'sub',a:joinDisp(Dl),b:joinDisp(Il),type:'mots collés / séparés',w:1});return;
+  }
+  const dw=Dl.filter(isWord),dp=Dl.filter(t=>!isWord(t)),iw=Il.filter(isWord),ip=Il.filter(t=>!isWord(t));
+  if(dw.length&&iw.length){
+    align(dw,iw).forEach(([p,q])=>{
+      if(p!==null&&q!==null)res.push(classify(dw[p],iw[q]));
+      else if(p!==null)res.push({k:'miss',a:dw[p],type:'mot oublié',w:1});
+      else res.push({k:'extra',b:iw[q],type:'mot en trop',w:.5});
+    });
+  }else{
+    dw.forEach(a=>res.push({k:'miss',a,type:'mot oublié',w:1}));
+    iw.forEach(b=>res.push({k:'extra',b,type:'mot en trop',w:.5}));
+  }
+  const n=Math.min(dp.length,ip.length);
+  for(let q=0;q<n;q++)res.push({k:'sub',a:dp[q],b:ip[q],type:'ponctuation',w:.5});
+  dp.slice(n).forEach(a=>res.push({k:'miss',a,type:'ponctuation oubliée',w:.5}));
+  ip.slice(n).forEach(b=>res.push({k:'extra',b,type:'ponctuation en trop',w:.5}));
+}
+function compare(orig,stud){
+  const A=tokenize(orig).filter(t=>t[0]!=='\n'),B=tokenize(stud).filter(t=>t[0]!=='\n');
+  const nz=t=>t.replace(/[«»“”]/g,'"').replace(/[–—]/g,'—');
+  const a=A.map(nz),b=B.map(nz),n=a.length,m=b.length;
+  const dp=Array.from({length:n+1},()=>new Uint16Array(m+1));
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const ops=[];let i=0,j=0;
+  while(i<n&&j<m){
+    if(a[i]===b[j]){ops.push({k:'eq',a:A[i]});i++;j++}
+    else if(dp[i+1][j]>=dp[i][j+1]){ops.push({k:'del',a:A[i]});i++}
+    else{ops.push({k:'ins',b:B[j]});j++}
+  }
+  while(i<n)ops.push({k:'del',a:A[i++]});
+  while(j<m)ops.push({k:'ins',b:B[j++]});
+  const res=[];let k=0;
+  while(k<ops.length){
+    if(ops[k].k==='eq'){res.push(ops[k]);k++;continue}
+    const Dl=[],Il=[];
+    while(k<ops.length&&ops[k].k!=='eq'){ops[k].k==='del'?Dl.push(ops[k].a):Il.push(ops[k].b);k++}
+    resolveBlock(Dl,Il,res);
+  }
+  return{res,words:A.filter(isWord).length};
+}
+function showCopy(res){
+  const parts=res.map(r=>{
+    if(r.k==='eq')return{p:r.a,h:esc(r.a)};
+    if(r.k==='sub')return{p:r.a,h:`<span class="dE" title="${esc(r.type)}"><s>${esc(r.b)}</s><b>${esc(r.a)}</b></span>`};
+    if(r.k==='miss')return{p:r.a,h:`<span class="dM" title="${esc(r.type)}">${esc(r.a)}</span>`};
+    return{p:r.b,h:`<span class="dX" title="${esc(r.type)}"><s>${esc(r.b)}</s></span>`};
+  });
+  let s='',prev='';
+  parts.forEach(x=>{
+    if(!s){s=x.h;prev=x.p;return}
+    const nsp=/^[,.;:?!…»)"”]$/.test(x.p)||prev.endsWith("'")||/^[«(“]$/.test(prev);
+    s+=(nsp?'':' ')+x.h;prev=x.p;
+  });
+  return s;
+}
+window.dSubmit=()=>{
+  const stud=ta()?ta().value:'';
+  if(!(stud.match(/\S+/g)||[]).length)return toast("⚠️ Ta copie est vide !",true);
+  stopAll();
+  const{res,words}=compare(D.text,stud);
+  const errs=res.filter(r=>r.k!=='eq');
+  const P=errs.reduce((s,r)=>s+r.w,0),kf=words<=60?1:Math.max(.35,60/words);
+  const note=Math.max(0,Math.round((20-P*kf)*2)/2);
+  const nOk=res.filter(r=>r.k==='eq'&&isWord(r.a)).length,pct=words?Math.round(nOk/words*100):0;
+  const col=note>=14?'#22c55e':note>=10?'#f59e0b':'#ef4444';
+  const verdict=note>=18?['🏆 Excellent !','Quasi sans faute, bravo.']:note>=14?['✅ Très bien','Quelques fautes seulement : regarde-les ci-dessous.']:note>=10?['🟠 Correct, peut mieux faire','Relis les fautes et leur règle, puis refais la dictée.']:['🔴 À retravailler','Reprends les règles ci-dessous puis refais cette dictée.'];
+  const gain=Math.round(note);points+=gain;save('studyai_points',points);updatePoints();
+  hist.unshift({title:D.title,source:D.source,note,errs:errs.length,date:new Date().toLocaleDateString('fr-FR'),text:D.text});
+  hist=hist.slice(0,12);sv('studyai_dictees',hist);
+  D.res={errs};D.mode='res';
+  $('dBody').innerHTML=`<div class="card result-box"><div class="big" style="color:${col}">${fr(note)}/20</div><h2 style="margin:8px 0">${verdict[0]}</h2><p style="color:#94a3b8">${verdict[1]}</p><p style="color:#fbbf24;font-weight:bold;margin-top:8px">+${gain} points</p></div>
+<div class="stats"><div class="stat"><b style="color:${errs.length?'#ef4444':'#22c55e'}">${errs.length}</b><small>Fautes</small></div><div class="stat"><b>${words}</b><small>Mots du texte</small></div><div class="stat"><b style="color:${col}">${pct}%</b><small>Mots justes</small></div></div>
+<div class="card"><h3 style="margin-bottom:6px">✍️ Ta copie corrigée</h3><p class="dHint" style="margin-top:0"><span class="dE"><s>ton erreur</s><b>correction</b></span> · <span class="dM">mot oublié</span> · <span class="dX"><s>en trop</s></span></p><div class="dTxt">${showCopy(res)}</div></div>
+<div class="card"><h3 style="margin-bottom:6px">📖 Le texte original</h3>${D.source?`<p style="color:#64748b;margin-bottom:8px">${esc(D.source)}</p>`:''}<div class="dTxt" style="white-space:pre-wrap">${esc(D.text)}</div></div>
+${errs.length?`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px"><h3>❌ Tes fautes (${errs.length})</h3><button class="btn mini" id="dExpBtn" onclick="dExplain()">🤖 Explique-moi mes fautes</button></div>`+errs.map((r,q)=>{
+    const lbl=r.k==='sub'?`Tu as écrit <b style="color:#fca5a5">${esc(r.b)}</b> → <b style="color:#86efac">${esc(r.a)}</b>`:r.k==='miss'?`Il manquait <b style="color:#86efac">${esc(r.a)}</b>`:`<b style="color:#fca5a5">${esc(r.b)}</b> en trop`;
+    return `<div class="dRow"><span class="badge">${esc(r.type)}</span><span>${lbl}</span><span class="badge" style="margin-left:auto;color:#fbbf24">−${String(r.w).replace('.',',')}</span><div class="rule" id="dX${q}"></div></div>`}).join('')+`</div>`:'<div class="card result-box"><h3>🎉 Aucune faute !</h3></div>'}
+<button class="btn" onclick="dRedo(0)">🔁 Refaire cette dictée</button> <button class="btn btn-secondary" onclick="renderDictee()">✨ Nouvelle dictée</button>`;
+  window.scrollTo(0,0);
+};
+window.dExplain=()=>{
+  const errs=(D.res&&D.res.errs)||[];if(!errs.length)return;
+  return busyB($('dExpBtn'),'⏳ Analyse...',async()=>{
+    const list=errs.map((r,q)=>`${q}. `+(r.k==='sub'?`écrit « ${r.b} » au lieu de « ${r.a} » (${r.type})`:r.k==='miss'?`oublié « ${r.a} »`:`« ${r.b} » en trop`)).join('\n');
+    const r=await callAI([
+      {role:'system',content:'Tu es un professeur de français bienveillant. Réponds UNIQUEMENT en JSON valide.'},
+      {role:'user',content:`Voici le texte d'une dictée :\n${D.text}\n\nVoici les fautes de l'élève :\n${list}\n\nPour chaque faute, donne en une ou deux phrases courtes la règle d'orthographe ou de grammaire à retenir (avec un mini-exemple si utile). Pour une simple ponctuation oubliée ou un oubli, une phrase suffit. Réponds UNIQUEMENT avec ce JSON : {"expl":[{"i":0,"rule":"..."}]}`}
+    ],false);
+    (r.expl||[]).forEach(z=>{const e=$('dX'+z.i);if(e)e.textContent='💡 '+String(z.rule||'')});
+    $('dExpBtn').style.display='none';
+  });
+};
+
+/* ---------- Intégration (vue + onglet) ---------- */
+(document.querySelector('main')||document.body).insertAdjacentHTML('beforeend','<div id="view-dictee" class="view"><div id="dBody"></div></div>');
+window.renderDictee=renderSetup;
+const pr=window.renderTabs,ps=window.showView;
+window.renderTabs=()=>{
+  pr();
+  const nav=document.getElementById('tabs');if(!nav)return;
+  if(dm==='dictee')nav.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  const h=`<div class="tab ${dm==='dictee'?'active':''}" onclick="showView('dictee')">✍️ Dictée</div>`;
+  const mk=[...nav.querySelectorAll('.tab')].find(t=>/Éval blanche/.test(t.textContent));
+  mk?mk.insertAdjacentHTML('afterend',h):nav.insertAdjacentHTML('afterbegin',h);
+};
+window.showView=n=>{
+  const was=dm;dm=n;
+  if(n!=='dictee'){stopAll();D.mode=''}
+  ps(n);
+  if(n==='dictee'&&(was!=='dictee'||!D.mode))renderSetup();
+};
+renderTabs();
+})();
+</script>
+
 </body>
 </html>
